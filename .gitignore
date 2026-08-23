@@ -1,0 +1,16 @@
+# Virtualenv
+.venv/
+
+# Secrets — never commit. See .env.example for the template.
+.env
+
+# Cached market data (Phase 2)
+.cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# macOS
+.DS_Store

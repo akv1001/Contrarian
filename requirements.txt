@@ -1,0 +1,12 @@
+# LLM access. We talk to every provider (Ollama, Groq, OpenRouter, ...) through the
+# OpenAI-compatible protocol, so this one client covers all of them via base_url.
+openai>=1.60
+
+# Loads .env into the environment. Keeps API keys project-local instead of in your shell.
+python-dotenv>=1.0
+
+# Typed data models + validation. Used for the schema-constrained LLM output in Phase 4.
+pydantic>=2.9
+
+# Market data (Phase 2). Unofficial Yahoo Finance scraper; supports NSE via .NS suffix.
+yfinance>=0.2.50
