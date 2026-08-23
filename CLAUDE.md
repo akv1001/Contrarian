@@ -14,8 +14,8 @@ Full plan: `~/.claude/plans/ok-lets-use-direct-wise-candle.md`
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Scaffold + inference smoke test | **Done — verified end to end** |
-| 2 | Data layer + Indian-coverage spike | Next |
-| 3 | Deterministic screen | — |
+| 2 | Data layer + Indian-coverage spike | **Done — 51/51 tickers fetch clean** |
+| 3 | Deterministic screen | Next |
 | 4 | Analyze (LLM call 1) | — |
 | 5 | Reflect (LLM call 2) | — |
 | 6 | Report + end-to-end | — |
@@ -53,6 +53,50 @@ exists to prevent.
 5. **Stage 3 must argue both sides** — an explicit strongest-case-for-value-trap is
    required before any recommendation.
 
+## Data coverage — measured, not assumed (Phase 2)
+
+Re-run `.venv/bin/python scripts/coverage_spike.py` before trusting any of this;
+it is a scrape of a site that changes. Numbers below are from 2026-08-23, 51 tickers.
+
+**Safe to screen on — 100% coverage:** `price`, `market_cap`, `fifty_two_week_high/low`,
+`average_volume`, `price_to_book`, `free_cash_flow`, `operating_cash_flow`,
+`return_on_equity`, `profit_margin`, `revenue_growth`, `total_debt`, `trailing_eps`,
+`book_value`, `total_revenue`, `forward_pe`.
+
+**Every remaining gap is one sector, not random flakiness:**
+
+| Field | Missing | Where |
+|---|---|---|
+| `ev_to_ebitda` | 9/51 | all Financials |
+| `debt_to_equity` | 7/51 | all Financials |
+| `operating_cash_flow` | 2/51 | Financials |
+| `trailing_pe` | 1/51 | TMPV — loss-making, so no trailing P/E exists |
+
+This is **structural, not a data gap**. EV/EBITDA and debt/equity are not defined
+quantities for a bank. Phase 3 must branch: screen Financials on P/B and ROE, and
+everyone else on the EV and leverage filters. Treating absence as a failing value
+would drop all 9-10 financials from the universe silently — and Financials is the
+single largest sector in the Nifty 50.
+
+39/51 tickers carry a complete `SCREEN_FIELDS` record; the 12 that don't are the
+financials above.
+
+### News: Google News RSS won decisively
+
+The plan called RSS a fallback. Measured, it is the primary source:
+
+| Feed | Items/ticker | Name-matched |
+|---|---|---|
+| yfinance `.news` | 9.6 | 57% |
+| Google News RSS | 94.3 | 87% |
+
+Yahoo's feed is not just thin, it is *wrong* — a `RELIANCE.NS` query returned a
+Rolls-Royce headline and a story from Odessa, Texas. Since news is the only signal
+that identifies the "temporary factor," feeding Phase 4 headlines about the wrong
+company leads straight to the failure mode this design exists to prevent.
+`news_rss.py` is the news source; `yahoo.py` keeps its `news()` only so the spike
+can keep re-checking the comparison.
+
 ## Setup
 
 ```bash
@@ -87,14 +131,32 @@ Zero-cost is a hard project constraint: free tiers and local models only.
 - **Never export `ANTHROPIC_API_KEY`.** A globally set value makes Claude Code bill at
   pay-as-you-go API rates instead of using a Pro subscription. This project doesn't use
   Anthropic at all; `config.py` warns if it sees the variable.
-- **NSE tickers need a `.NS` suffix** in yfinance (`RELIANCE.NS`, `INFY.NS`).
-- **yfinance is an unofficial scraper.** Wrap every call so schema drift fails loudly
-  rather than silently returning `None`. `jugaad-data` is the documented fallback for
-  price data — it targets the current NSE site, unlike most NSE libraries.
-- **News coverage for Indian tickers is thin** in yfinance, and news is exactly what
-  identifies the "temporary factor." Fallback is Google News RSS (free, no key).
-- Cache market data to disk with a TTL. Fundamentals move quarterly; refetching every
-  run burns rate limit and slows iteration.
+- **NSE tickers need a `.NS` suffix** in yfinance — but not always. Always go through
+  `universe.yahoo_symbol()`, which consults `YAHOO_SYMBOL_OVERRIDES`. Tata Motors
+  demerged: NSE kept `TATAMOTORS` for the CV entity, Yahoo files it under **`TMCV.NS`**,
+  and `TATAMOTORS.NS` now 404s. `TMPV.NS` is the passenger-vehicle entity. Both are in
+  `universe.py` (so it holds 51 entries, not 50) — confirm which the index actually
+  holds at the next review.
+- **A 404 is the friendly failure. The nasty one is a stub.** `TATAMOTOR.NS` (one letter
+  off) returns 25 keys of exchange metadata with no price, which passes any key-count
+  sanity check and then reads downstream as "this company has no debt and no earnings."
+  `yahoo.py` requires at least one of `regularMarketPrice`/`currentPrice`/`previousClose`/
+  `marketCap` before accepting a payload.
+- **`.info` lacks `freeCashflow`, `operatingCashflow`, `returnOnEquity`, and
+  `fiftyTwoWeekChange` for NSE tickers** even though it carries them for US ones. Don't
+  conclude the data is unavailable — FCF and operating CF come from the cash flow
+  statement, ROE is derived from net income / equity, and the 12-month return is computed
+  from daily closes in `price_stats`. All are marked in `Fundamentals.provenance`.
+- **yfinance `.news` items are nested** as `{"id", "content": {...}}` in 1.6.0. Older
+  tutorials assume a flat dict with `title`/`link`/`providerPublishTime`; that shape is
+  gone.
+- **`None` never means zero.** Phase 3 must exclude on absent data, not treat it as a
+  failing value, or patchy coverage makes a ticker look like a bargain.
+- Cache market data to disk with a TTL — `contrarian/data/cache.py`, one JSON file per
+  key under `.cache/`. `rm -rf .cache/` is a valid flush. A cold spike run takes minutes;
+  a warm one takes seconds.
+- Cache keys must survive `M&M` and `BAJAJ-AUTO` — real NSE symbols, and an unescaped
+  `&` in a path is a bug waiting for one specific ticker.
 - **Qwen3 is a hybrid reasoning model.** In the Phase 1 smoke test it spent ~300 of 483
   completion tokens on internal thinking that Ollama stripped from the response. It did
   not leak — but if it ever leaks into Phase 4's schema-constrained JSON, parsing breaks.
@@ -121,13 +183,27 @@ Run `brew services start ollama` if you want it permanent.
 contrarian/
   config.py      # env loading + startup validation
   llm.py         # the ONLY place LLM calls are made
-  universe.py    # Nifty 50 constituents          (phase 2)
-  data/          # MarketDataSource protocol      (phase 2)
-  screen.py enrich.py analyze.py reflect.py report.py
-  schema.py      # Candidate, Verdict, Reflection
-scripts/smoke_test.py
-main.py          # CLI entry point                (phase 6)
+  universe.py    # Nifty 50 constituents + Yahoo symbol overrides
+  data/
+    source.py    # MarketDataSource protocol, Fundamentals, PriceStats, NewsItem
+    yahoo.py     # yfinance impl — the ONLY file importing yfinance
+    news_rss.py  # Google News RSS + CompositeSource + default_source()
+    cache.py     # disk cache w/ TTL
+  screen.py enrich.py analyze.py reflect.py report.py    (phases 3-6)
+  schema.py      # Candidate, Verdict, Reflection        (phase 3+)
+scripts/
+  smoke_test.py      # phase 1 — one real LLM call
+  coverage_spike.py  # phase 2 — the coverage matrix; re-run it when data looks off
+tests/test_data_layer.py
+main.py          # CLI entry point                       (phase 6)
 ```
 
 `data/source.py` is the swap seam: `screen.py` and `enrich.py` depend on the protocol,
-never on `yfinance` directly.
+never on `yfinance` directly. Build a source with `news_rss.default_source()` rather than
+constructing `YahooSource` at a call site.
+
+```bash
+.venv/bin/python scripts/coverage_spike.py            # full matrix, warm cache = seconds
+.venv/bin/python scripts/coverage_spike.py --limit 5 --verbose
+.venv/bin/python -m unittest discover tests           # 31 tests, no network
+```
