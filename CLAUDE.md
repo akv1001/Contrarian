@@ -15,8 +15,8 @@ Full plan: `~/.claude/plans/ok-lets-use-direct-wise-candle.md`
 |---|---|---|
 | 1 | Scaffold + inference smoke test | **Done — verified end to end** |
 | 2 | Data layer + Indian-coverage spike | **Done — 51/51 tickers fetch clean** |
-| 3 | Deterministic screen | Next |
-| 4 | Analyze (LLM call 1) | — |
+| 3 | Deterministic screen | **Done — 9 survivors of 51** |
+| 4 | Analyze (LLM call 1) | Next |
 | 5 | Reflect (LLM call 2) | — |
 | 6 | Report + end-to-end | — |
 
@@ -43,6 +43,9 @@ exists to prevent.
 1. **The model never does arithmetic and never recalls a figure from training.** Every
    number reaching it comes from the data layer. Financial-QA benchmarks show numerical
    hallucinations are *silent* — confident wrong figures that survive a skim.
+   **`Candidate.figures()` is the mechanism.** Build the Phase 4 prompt from that dict
+   and nothing else; a number in a verdict that is not a value in it is a hallucination,
+   and that is a mechanical check rather than a judgment call.
 2. **`report.py` makes no LLM call.** Re-summarising through a model at the last mile
    would undo the grounding work.
 3. **Stage 4 runs in a fresh context**, framed as third-party analysis. Never continue
@@ -97,6 +100,59 @@ company leads straight to the failure mode this design exists to prevent.
 `news_rss.py` is the news source; `yahoo.py` keeps its `news()` only so the spike
 can keep re-checking the comparison.
 
+## The screen (Phase 3)
+
+Three gates, in order: **eligibility** (does the source have the fields this
+sector's ruleset needs — absent data excludes, never passes), **depressed**
+(<= 40% of the 52-week range AND >= 15% off the high), then **quality + value**.
+
+Two rulesets, because of the Phase 2 finding:
+
+| | Non-financials | Financials |
+|---|---|---|
+| Valued on | trailing P/E | price/book |
+| Cash test | free cash flow > 0 | *none* |
+| Leverage | debt/equity <= 1.5x | *none* |
+| Returns | ROE >= 10%, positive margin | same |
+
+Financials get no FCF or leverage test because those aren't meaningful for a
+bank — borrowing is the raw material, and "free cash flow" is an artefact of how
+financing flows are classified (AXISBANK -10,847cr vs HDFCBANK +106,578cr; neither
+means what it would for a manufacturer).
+
+Ranked by `40% depression + 40% discount to peers + 20% quality`, each component
+kept separately on the `Candidate` so a rank can be explained rather than asserted.
+
+```bash
+.venv/bin/python scripts/run_screen.py                     # ranked survivors
+.venv/bin/python scripts/run_screen.py --show-rejects 10   # closest misses — tune here
+.venv/bin/python scripts/run_screen.py --explain ITC       # every filter + the figures
+```
+
+### Live result, 2026-08-23
+
+9 of 51 passed: ITC, HINDUNILVR, COALINDIA, ONGC, INFY, HDFCBANK, NTPC, WIPRO, TCS.
+Rejection counts: `near_52w_low` 31, `meaningful_drawdown` 29, `cheap_vs_peers` 24,
+`return_on_equity` 8, `positive_fcf` 6, `leverage` 2.
+
+### Known weaknesses — hand these to Phase 4, don't paper over them
+
+- **Small sectors fall back to an index-wide median, and that comparison is weak.**
+  Energy has 3 members, so COALINDIA and ONGC were first scored a ~75% "discount"
+  against the index P/E median of 29.7 and ranked 2nd and 3rd. But commodity
+  producers trade on single-digit multiples *everywhere* — that gap is a sector
+  characteristic, not a dislocation. `FALLBACK_DISCOUNT_DAMPING = 0.5` halves the
+  score contribution when the basis is a fallback. It still gates; it can no
+  longer dominate the ranking. The real fix is a peer universe wider than 51
+  stocks, which we don't have.
+- **A derated sector makes "cheap vs peers" nearly free.** 3 of 5 IT names passed,
+  and TCS passed sitting *exactly* on the IT median (discount 0.00). Sector
+  rotation is a legitimate temporary factor, so this is arguably the screen
+  working — but the peer test carries no information when the whole peer group
+  has derated together. Phase 4 should be told the peer basis, not just the gap.
+- The candidate is included in its own peer median. With 8-12 names the bias is
+  negligible and one stable published figure per sector is worth more for auditing.
+
 ## Setup
 
 ```bash
@@ -150,8 +206,12 @@ Zero-cost is a hard project constraint: free tiers and local models only.
 - **yfinance `.news` items are nested** as `{"id", "content": {...}}` in 1.6.0. Older
   tutorials assume a flat dict with `title`/`link`/`providerPublishTime`; that shape is
   gone.
-- **`None` never means zero.** Phase 3 must exclude on absent data, not treat it as a
-  failing value, or patchy coverage makes a ticker look like a bargain.
+- **`None` never means zero.** The screen excludes on absent data rather than treating
+  it as a failing value — otherwise patchy coverage makes a ticker look like a bargain.
+- **Yahoo's `debtToEquity` is a percentage, not a ratio.** `36.65` means 0.37x. Index
+  median is 29.4, max 315. A ceiling written as `2.0` would silently reject all 51 names
+  and the screen would look merely strict. `Candidate.figures()` exposes it as
+  `debt_to_equity_pct` so the unit cannot be misread downstream.
 - Cache market data to disk with a TTL — `contrarian/data/cache.py`, one JSON file per
   key under `.cache/`. `rm -rf .cache/` is a valid flush. A cold spike run takes minutes;
   a warm one takes seconds.
@@ -189,12 +249,14 @@ contrarian/
     yahoo.py     # yfinance impl — the ONLY file importing yfinance
     news_rss.py  # Google News RSS + CompositeSource + default_source()
     cache.py     # disk cache w/ TTL
-  screen.py enrich.py analyze.py reflect.py report.py    (phases 3-6)
-  schema.py      # Candidate, Verdict, Reflection        (phase 3+)
+  screen.py      # stage 1 — deterministic, no LLM
+  schema.py      # Candidate, FilterResult, PeerBasis, ScreenResult
+  enrich.py analyze.py reflect.py report.py              (phases 4-6)
 scripts/
   smoke_test.py      # phase 1 — one real LLM call
   coverage_spike.py  # phase 2 — the coverage matrix; re-run it when data looks off
-tests/test_data_layer.py
+  run_screen.py      # phase 3 — ranked survivors, with every filter's numbers
+tests/test_data_layer.py tests/test_screen.py            # 71 tests, no network
 main.py          # CLI entry point                       (phase 6)
 ```
 
@@ -205,5 +267,5 @@ constructing `YahooSource` at a call site.
 ```bash
 .venv/bin/python scripts/coverage_spike.py            # full matrix, warm cache = seconds
 .venv/bin/python scripts/coverage_spike.py --limit 5 --verbose
-.venv/bin/python -m unittest discover tests           # 31 tests, no network
+.venv/bin/python -m unittest discover tests           # 71 tests, no network
 ```
