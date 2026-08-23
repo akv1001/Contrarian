@@ -13,7 +13,7 @@ Full plan: `~/.claude/plans/ok-lets-use-direct-wise-candle.md`
 
 | Phase | Scope | State |
 |---|---|---|
-| 1 | Scaffold + inference smoke test | **Done** |
+| 1 | Scaffold + inference smoke test | **Done — verified end to end** |
 | 2 | Data layer + Indian-coverage spike | Next |
 | 3 | Deterministic screen | — |
 | 4 | Analyze (LLM call 1) | — |
@@ -95,6 +95,25 @@ Zero-cost is a hard project constraint: free tiers and local models only.
   identifies the "temporary factor." Fallback is Google News RSS (free, no key).
 - Cache market data to disk with a TTL. Fundamentals move quarterly; refetching every
   run burns rate limit and slows iteration.
+- **Qwen3 is a hybrid reasoning model.** In the Phase 1 smoke test it spent ~300 of 483
+  completion tokens on internal thinking that Ollama stripped from the response. It did
+  not leak — but if it ever leaks into Phase 4's schema-constrained JSON, parsing breaks.
+  Before building on structured output in Phase 4, confirm the thinking block is
+  suppressed or reliably stripped, and budget completion tokens at roughly 3x the
+  visible answer length.
+
+## Local environment (already set up)
+
+Ollama 0.32.15 installed via the Homebrew **formula** (not the cask), with `qwen3:14b`
+pulled (9.3 GB). The server is **not** a login item — start it per session with:
+
+```bash
+OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 ollama serve
+```
+
+Flash attention and the q8_0 KV cache cut memory pressure at long context, which matters
+once Phase 4 feeds full financial statements plus news for several candidates at once.
+Run `brew services start ollama` if you want it permanent.
 
 ## Layout
 
