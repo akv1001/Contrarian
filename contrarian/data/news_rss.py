@@ -44,6 +44,24 @@ _HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 # the shape of traffic that gets an unofficial endpoint to stop answering.
 _DELAY_SECONDS = 0.7
 
+# Restricts results to market coverage. Without it, a short or ambiguous company
+# name matches anything.
+#
+# ITC is the case that forced this. A bare `"ITC"` query returned headlines about
+# *Input Tax Credit* (the GST term), an ILO training centre, and ITC Hotels — a
+# separately listed company since the 2025 demerger. Roughly a third of the first
+# fifteen results were about ITC Ltd at all.
+#
+# Worse, the Phase 2 relevance metric scored that 87% "name-matched", because the
+# token "itc" does appear in every one of those headlines. The measurement was
+# blind to exactly the failure it was meant to detect, which is why this was only
+# caught by reading a real prompt.
+#
+# Adding the qualifier also surfaced ITC's actual temporary factor — a cigarette
+# tax hike denting Q1, with brokerages upgrading as the concern eased — which the
+# bare query had buried entirely.
+_MARKET_CONTEXT = "(share OR shares OR stock OR earnings OR results OR profit)"
+
 _last_request_at = 0.0
 
 
@@ -72,7 +90,10 @@ class GoogleNewsRSS:
         name = company_name or _name_for(symbol)
         entry = cache.get_or_fetch(
             "google_news",
-            f"{symbol}_{self.window_days}d",
+            # The suffix versions the *query*, not the code. Changing how we
+            # search must invalidate cached results from the old search, or a
+            # warm cache silently keeps serving the worse headlines.
+            f"{symbol}_{self.window_days}d_ctx",
             cache.TTL_NEWS,
             lambda: self._fetch(name),
             refresh=refresh,
@@ -83,10 +104,12 @@ class GoogleNewsRSS:
     def _fetch(self, company_name: str) -> list[dict[str, Any]]:
         """Fetch and parse one RSS search.
 
-        The exact-phrase quoting is load-bearing. Unquoted, "Tata Motors" matches
-        any story mentioning Tata, and the Tata group has a dozen listed entities.
+        Both halves of the query are load-bearing. The exact-phrase quoting stops
+        "Tata Motors" matching any story mentioning Tata, of which the group has a
+        dozen listed entities; the market-context clause stops a short name
+        matching unrelated uses of the same letters. See `_MARKET_CONTEXT`.
         """
-        query = f'"{company_name}" when:{self.window_days}d'
+        query = f'"{company_name}" {_MARKET_CONTEXT} when:{self.window_days}d'
         params = {"q": query, **_EDITION}
         url = f"{_ENDPOINT}?{urllib.parse.urlencode(params)}"
 

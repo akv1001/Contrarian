@@ -16,8 +16,8 @@ Full plan: `~/.claude/plans/ok-lets-use-direct-wise-candle.md`
 | 1 | Scaffold + inference smoke test | **Done — verified end to end** |
 | 2 | Data layer + Indian-coverage spike | **Done — 51/51 tickers fetch clean** |
 | 3 | Deterministic screen | **Done — 9 survivors of 51** |
-| 4 | Analyze (LLM call 1) | Next |
-| 5 | Reflect (LLM call 2) | — |
+| 4 | Analyze (LLM call 1) | **Done — grounded JSON verdicts** |
+| 5 | Reflect (LLM call 2) | Next |
 | 6 | Report + end-to-end | — |
 
 One phase per session. Commit at the end of each, then `/clear` before the next.
@@ -100,6 +100,20 @@ company leads straight to the failure mode this design exists to prevent.
 `news_rss.py` is the news source; `yahoo.py` keeps its `news()` only so the spike
 can keep re-checking the comparison.
 
+**Every query carries a market-context clause** (`share OR shares OR stock OR
+earnings OR results OR profit`) on top of the quoted company name. ITC forced this:
+a bare `"ITC"` query returned headlines about *Input Tax Credit*, an ILO training
+centre, and ITC Hotels — a separately listed company since the 2025 demerger. Only
+about a third of the first fifteen results concerned ITC Ltd.
+
+Note how that slipped through: the Phase 2 relevance metric scored it **87%
+name-matched**, because the token "itc" does appear in every one of those
+headlines. The measurement was blind to exactly the failure it existed to detect,
+and it was only caught by reading a real prompt. Adding the qualifier also surfaced
+ITC's genuine temporary factor — a cigarette tax hike denting Q1, with brokerages
+upgrading as the concern eased — which the bare query had buried. **Read a real
+prompt before trusting a coverage statistic.**
+
 ## The screen (Phase 3)
 
 Three gates, in order: **eligibility** (does the source have the fields this
@@ -152,6 +166,65 @@ Rejection counts: `near_52w_low` 31, `meaningful_drawdown` 29, `cheap_vs_peers` 
   has derated together. Phase 4 should be told the peer basis, not just the gap.
 - The candidate is included in its own peer median. With 8-12 names the bias is
   negligible and one stable published figure per sector is worth more for auditing.
+
+## Enrich + analyze (Phase 4)
+
+`enrich.py` is deterministic and does **all the arithmetic**. Every comparison is
+resolved in Python and handed over as a finished sentence — not "P/E 17.0, median
+69.2" but "P/E of 17.0 — a 75% discount to the Consumer median of 69.2".
+
+This is the defence that actually works, and it earned itself. Given the raw pair,
+qwen3:14b wrote *"P/E 17.0 is 69.2% below sector median"* — folding a real input
+number into invented arithmetic. Given the discount pre-computed, it reported it
+correctly. **Never hand the model two numbers and a relationship to infer.**
+
+```bash
+.venv/bin/python scripts/run_analyze.py --limit 3
+.venv/bin/python scripts/run_analyze.py --symbol INDUSINDBK   # works on rejects too
+.venv/bin/python scripts/run_analyze.py --limit 1 --show-prompt
+```
+
+### Structured output works — the Phase 1 risk is closed
+
+`response_format=json_schema` with `strict: true` works on Ollama + qwen3:14b.
+Parses first try, and **the `<think>` block does not leak** — constrained decoding
+leaves no room for it. `llm.chat_structured()` is the entry point; `strict_schema()`
+inlines `$ref`s because Ollama compiles the schema to a GBNF grammar and does not
+resolve them.
+
+**Field order in a Pydantic model is generation order.** `Verdict` puts
+`value_trap_case` before `verdict`, so the model physically writes the bear case
+before a verdict exists. That is design rule 5 enforced structurally rather than
+requested politely — keep the order if you edit the model.
+
+### Confidence needs an explicit rubric
+
+Without one the scale collapses: the first full run returned confidence 4, 0, 0.
+With the rubric in `analyze.SYSTEM` the same input scores 45-55. Still treat it as
+soft — the spike scored one value-trap case 60 then 15 on consecutive runs.
+
+Current behaviour: **everything comes back UNCLEAR at 45-55.** Self-consistent with
+"genuinely balanced", and safe given rule 4, but a pipeline that never commits is
+of limited use. Worth watching in Phases 5-6.
+
+### What the grounding check does and does not do
+
+`check_grounding()` traces every number in the verdict back to the input. It
+returns `(issues, headline_sourced)` — a figure quoted from a headline is not an
+error, but it came from third-party news text rather than the data layer, so it is
+tracked separately.
+
+**It catches invented figures. It does not catch real figures used to support a
+fabricated claim** — the spike's "17.0 is 69.2% below" passes cleanly, because
+both numbers are real. A clean grounding report is not a correct analysis. That
+gap is what Phase 5 exists to close, and there is a test asserting the blind spot
+so it cannot be quietly forgotten.
+
+Two live false positives are fixed and regression-tested: rounding is checked at
+the precision the model actually wrote (input 0.033 vs written "0.03"), and
+time-window idioms are stripped so "52-week low" does not report 52 as invented.
+Coincidental collisions remain possible — with ~53 allowed numbers, a written "18%"
+can match an unrelated 18.1% margin. Another reason not to over-trust a clean report.
 
 ## Setup
 
@@ -250,13 +323,16 @@ contrarian/
     news_rss.py  # Google News RSS + CompositeSource + default_source()
     cache.py     # disk cache w/ TTL
   screen.py      # stage 1 — deterministic, no LLM
-  schema.py      # Candidate, FilterResult, PeerBasis, ScreenResult
-  enrich.py analyze.py reflect.py report.py              (phases 4-6)
+  enrich.py      # stage 2 — deterministic; does ALL the arithmetic
+  analyze.py     # stage 3 — LLM call 1, + the grounding audit
+  schema.py      # Candidate, Fact, EnrichedCandidate, Verdict, AnalyzedCandidate
+  reflect.py report.py                                   (phases 5-6)
 scripts/
   smoke_test.py      # phase 1 — one real LLM call
   coverage_spike.py  # phase 2 — the coverage matrix; re-run it when data looks off
   run_screen.py      # phase 3 — ranked survivors, with every filter's numbers
-tests/test_data_layer.py tests/test_screen.py            # 71 tests, no network
+  run_analyze.py     # phase 4 — screen -> enrich -> judge, with grounding report
+tests/  test_data_layer.py  test_screen.py  test_analyze.py   # 102 tests, no network
 main.py          # CLI entry point                       (phase 6)
 ```
 
@@ -267,5 +343,5 @@ constructing `YahooSource` at a call site.
 ```bash
 .venv/bin/python scripts/coverage_spike.py            # full matrix, warm cache = seconds
 .venv/bin/python scripts/coverage_spike.py --limit 5 --verbose
-.venv/bin/python -m unittest discover tests           # 71 tests, no network
+.venv/bin/python -m unittest discover tests           # 102 tests, no network
 ```

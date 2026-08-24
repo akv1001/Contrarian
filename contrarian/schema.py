@@ -14,10 +14,14 @@ expensive error here is a plausible-looking wrong number surviving a skim.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
-from .data.source import Fundamentals, PriceStats
+from pydantic import BaseModel, Field
+
+from .data.source import Fundamentals, NewsItem, PriceStats
 
 
 @dataclass(frozen=True)
@@ -135,6 +139,179 @@ class Candidate:
             "total_revenue": f.total_revenue,
             "peer_median": self.peer.median,
         }
+
+
+_NUMBER_IN_TEXT = re.compile(r"-?\d[\d,]*\.?\d*")
+
+
+def _numbers_in(text: str) -> list[float]:
+    """Pull every numeric literal out of a string, tolerating thousands commas."""
+    out: list[float] = []
+    for match in _NUMBER_IN_TEXT.finditer(text or ""):
+        try:
+            out.append(float(match.group().rstrip(".").replace(",", "")))
+        except ValueError:
+            continue
+    return out
+
+
+@dataclass(frozen=True)
+class Fact:
+    """One pre-computed statement of fact, ready to hand to the model.
+
+    Every comparison, ratio, and percentage change is resolved *here*, in Python,
+    before the model ever sees it. Design rule 1 says the model never does
+    arithmetic, and this is how that is enforced rather than merely requested.
+
+    The rule earned itself during the Phase 4 spike. Given a raw P/E of 17.0 and
+    a sector median of 69.2, qwen3:14b wrote "P/E 17.0 is 69.2% below sector
+    median" — reusing a real input number inside invented arithmetic. Handed the
+    same comparison pre-computed as "a 75% discount", it reported it correctly.
+
+    `numbers` lists every numeric value in `text`, which is what makes the
+    grounding check in `analyze.py` mechanical.
+    """
+
+    label: str
+    text: str
+    numbers: tuple[float, ...] = ()
+
+    def __str__(self) -> str:
+        return f"{self.label}: {self.text}"
+
+
+@dataclass(frozen=True)
+class EnrichedCandidate:
+    """A survivor plus everything stage 3 is allowed to reason from.
+
+    Nothing else reaches the prompt. If a figure is not in `facts` and a headline
+    is not in `headlines`, the model has no legitimate way to know it — which is
+    precisely what makes an ungrounded number in the output detectable.
+    """
+
+    candidate: Candidate
+    facts: tuple[Fact, ...]
+    headlines: tuple[NewsItem, ...]
+    news_source: str = "unknown"
+
+    @property
+    def symbol(self) -> str:
+        return self.candidate.symbol
+
+    @property
+    def name(self) -> str:
+        return self.candidate.name
+
+    @property
+    def sector(self) -> str:
+        return self.candidate.sector
+
+    def allowed_numbers(self) -> tuple[float, ...]:
+        """Every number from the *verified* data layer. The strong whitelist."""
+        seen: list[float] = []
+        for fact in self.facts:
+            seen.extend(fact.numbers)
+        for value in self.candidate.figures().values():
+            if value is not None:
+                seen.append(float(value))
+        return tuple(seen)
+
+    def headline_numbers(self) -> tuple[float, ...]:
+        """Numbers appearing in the headlines, and their age markers.
+
+        Kept separate from `allowed_numbers` on purpose. These were genuinely
+        shown to the model, so citing one is not a hallucination — Coal India's
+        verdict quoted "production rises 8.44%" straight from a real headline.
+        But a figure from third-party news text has not been through the data
+        layer and carries none of its guarantees, so a verdict leaning on one is
+        making a weaker claim than it appears to be. Phase 5 should weigh that.
+        """
+        seen: list[float] = []
+        for item in self.headlines:
+            seen.extend(_numbers_in(item.title))
+            if item.age_days is not None:
+                # The prompt labels each headline "[17d ago, ...]", and models
+                # quote that marker back when citing the story.
+                seen.append(float(round(item.age_days)))
+        return tuple(seen)
+
+
+class Verdict(BaseModel):
+    """Stage 3's judgment. Schema-constrained — the provider enforces the shape.
+
+    **Field order is load-bearing.** Constrained decoding emits properties in
+    schema order, so the model physically writes `value_trap_case` before it
+    writes `verdict`. Design rule 5 requires the bear case to be argued before
+    any recommendation, and ordering the schema is what makes that structural
+    rather than a polite request the model can skip.
+
+    `confidence` is an integer 0-100, and it needs the explicit rubric that
+    `analyze.SYSTEM` carries. Without one the scale collapsed: the first full run
+    returned 4, 0 and 0 across three candidates, which is not a calibrated
+    judgment but a model declining to use a range it was never shown. With the
+    rubric the same input scores 45-55 — "genuinely balanced", which matches the
+    reasoning it wrote.
+
+    Even calibrated, treat it as soft. The Phase 4 spike scored an identical
+    value-trap case 60 and then 15 on consecutive runs. Phase 5 audits confidence
+    rather than trusting it, and may only lower it.
+    """
+
+    temporary_factor: str = Field(
+        description="The specific recent event or condition that appears to have "
+        "depressed the price. Say 'none identified' if the data does not show one."
+    )
+    bull_case: str = Field(
+        description="Why the business may be sound despite the price, citing only "
+        "figures from the data provided."
+    )
+    value_trap_case: str = Field(
+        description="The strongest possible argument that this is cheap for a real "
+        "structural reason. Argue it properly, as an opponent would."
+    )
+    verdict: Literal["TEMPORARY_DISLOCATION", "VALUE_TRAP", "UNCLEAR"]
+    confidence: int = Field(ge=0, le=100, description="0-100, calibrated to evidence.")
+    what_would_change_my_mind: str = Field(
+        description="The single data point that would most change this assessment."
+    )
+
+
+@dataclass(frozen=True)
+class GroundingIssue:
+    """A number in the model's output that does not trace to its input.
+
+    Records the sentence it appeared in, because the number alone is rarely
+    enough to judge whether it is a hallucination or a false positive.
+    """
+
+    field: str
+    value: float
+    context: str
+
+    def __str__(self) -> str:
+        return f"{self.field}: {self.value:g} not in input — \"{self.context}\""
+
+
+@dataclass(frozen=True)
+class AnalyzedCandidate:
+    """A verdict bound to the candidate it judges, plus the grounding audit."""
+
+    enriched: EnrichedCandidate
+    verdict: Verdict
+    grounding_issues: tuple[GroundingIssue, ...] = ()
+    # Figures the verdict took from news headlines rather than the data layer.
+    # Not errors — but claims resting on unverified third-party text.
+    headline_sourced: tuple[float, ...] = ()
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+    @property
+    def symbol(self) -> str:
+        return self.enriched.symbol
+
+    @property
+    def is_grounded(self) -> bool:
+        return not self.grounding_issues
 
 
 @dataclass(frozen=True)
