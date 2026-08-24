@@ -45,6 +45,54 @@ OUTCOME_NOTE = {
     "REJECT": "the audit rejected the reasoning",
 }
 
+# Plain-English gloss for every piece of jargon the report uses. A reader who has
+# never seen this project should not have to infer what UNCLEAR means, or guess
+# whether 40/100 is good. Each entry is (headline, what it actually means).
+VERDICT_MEANING = {
+    "TEMPORARY_DISLOCATION": (
+        "The fall looks temporary",
+        "Something specific and passing appears to have knocked the price down, and "
+        "the business underneath still looks sound.",
+    ),
+    "VALUE_TRAP": (
+        "Cheap for a real reason",
+        "The low price appears to reflect a genuine, lasting problem with the "
+        "business — not an overreaction. Cheap, and deservedly so.",
+    ),
+    "UNCLEAR": (
+        "Not enough evidence either way",
+        "The case for a temporary dip and the case for a real problem came out "
+        "roughly even. That is a legitimate answer rather than a failure — but it is "
+        "not a reason to act.",
+    ),
+}
+
+OUTCOME_MEANING = {
+    "KEEP": "The reasoning held up. Nothing material was wrong with it.",
+    "DEMOTE": "The reasoning had real weaknesses, so the confidence was cut.",
+    "REJECT": "The reasoning did not hold up well enough to put this forward at all.",
+}
+
+# Confidence bands, worded to match the scale the analyst was actually given.
+_BANDS = (
+    (80, "high", "the evidence points clearly one way"),
+    (60, "moderate", "it leans one way, but there is real evidence against"),
+    (40, "low", "the evidence is genuinely balanced"),
+    (0, "very low", "this is close to a guess"),
+)
+
+
+def confidence_band(confidence: int) -> tuple[str, str]:
+    """Turn a 0-100 score into a word and an explanation.
+
+    A bare "40/100" tells a new reader nothing — is that good? The bands match the
+    rubric the model was scored against, so the label and the number agree.
+    """
+    for floor, word, meaning in _BANDS:
+        if confidence >= floor:
+            return word, meaning
+    return "very low", "this is close to a guess"
+
 DISCLAIMER = (
     "**This is idea generation, not investment advice.** Every verdict below was "
     "written by a language model, and LLM equity analysis is unreliable — the "
@@ -61,6 +109,7 @@ def render(run: PipelineRun) -> str:
     """
     parts = [
         _header(run),
+        _glossary(),
         _summary_table(run),
     ]
     parts.extend(_candidate_section(r, i) for i, r in enumerate(rank(run.reflected), 1))
@@ -116,6 +165,63 @@ def _header(run: PipelineRun) -> str:
     return "\n".join(lines)
 
 
+def _glossary() -> str:
+    """Define every term before it is used.
+
+    Sits above the results on purpose. The report is meant to be readable by
+    someone who has never seen this project, and "UNCLEAR at 40/100, down from 55"
+    is meaningless without all three of these explained first.
+    """
+    lines = [
+        "## What the words below mean",
+        "",
+        "Each company gets **one of three verdicts**:",
+        "",
+    ]
+    for key in ("TEMPORARY_DISLOCATION", "UNCLEAR", "VALUE_TRAP"):
+        headline, meaning = VERDICT_MEANING[key]
+        lines.append(f"- **{VERDICT_LABEL[key]}** — *{headline}.* {meaning}")
+
+    lines.extend(
+        [
+            "",
+            "**Confidence** is a 0-100 score for how strong the evidence was:",
+            "",
+            "| Score | Means |",
+            "|---|---|",
+            "| 80-100 | High — the evidence points clearly one way |",
+            "| 60-79 | Moderate — it leans one way, but there is real evidence against |",
+            "| 40-59 | Low — the evidence is genuinely balanced |",
+            "| 0-39 | Very low — close to a guess |",
+            "",
+            "**Why two numbers, like \"55 → 40\"?** Every company is looked at twice. "
+            "A first pass reaches a verdict and scores its own confidence. Then a "
+            "second, independent pass re-reads that verdict against the same figures "
+            "and checks whether the reasoning holds up.",
+            "",
+            "The second pass can **only lower the score, never raise it**. That is "
+            "deliberate: missing an opportunity costs nothing, while recommending a "
+            "company that is cheap for a good reason is expensive. So `55 → 40` means "
+            "the first pass said 55 and the review cut it to 40.",
+            "",
+            "The review ends in one of three outcomes:",
+            "",
+        ]
+    )
+    for key in ("KEEP", "DEMOTE", "REJECT"):
+        lines.append(f"- **{key}** — {OUTCOME_MEANING[key]}")
+
+    lines.extend(
+        [
+            "",
+            "> **None of this is a buy or sell signal.** The most a strong result here "
+            "means is *this one is worth your own research*. Nothing below has been "
+            "checked against whether it actually made money.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _summary_table(run: PipelineRun) -> str:
     if not run.reflected:
         return (
@@ -126,10 +232,10 @@ def _summary_table(run: PipelineRun) -> str:
     rows = [
         "## Results",
         "",
-        "Confidence is shown as the analyst's figure and the figure that survived "
-        "the audit. Reflection can only lower it, never raise it.",
+        "Confidence reads `first pass → after review`. A single number means the "
+        "review left it unchanged.",
         "",
-        "| # | Ticker | Sector | Verdict | Confidence | Audit | Grounding |",
+        "| # | Ticker | Sector | Verdict | Confidence | Review | Figures checked |",
         "|---|---|---|---|---|---|---|",
     ]
     for i, r in enumerate(rank(run.reflected), 1):
@@ -155,30 +261,54 @@ def _summary_table(run: PipelineRun) -> str:
 
 def _candidate_section(r: ReflectedCandidate, index: int) -> str:
     verdict = r.analyzed.verdict
+    headline, meaning = VERDICT_MEANING.get(
+        r.final_verdict, (r.final_verdict, "")
+    )
+    word, band = confidence_band(r.final_confidence)
+
     lines = [
         "---",
         "",
         f"## {index}. {r.symbol} — {r.name}",
         "",
-        f"**{VERDICT_LABEL.get(r.final_verdict, r.final_verdict)}**, "
-        f"confidence **{r.final_confidence}/100**"
-        + (
-            f" — down from {r.original_confidence}, "
-            f"{OUTCOME_NOTE.get(r.reflection.outcome, '')}"
-            if r.confidence_drop
-            else ""
-        ),
+        f"### Verdict: {headline.lower()}",
+        "",
+        meaning,
+        "",
+        f"**Confidence {r.final_confidence}/100 — {word}**, meaning {band}.",
     ]
+
+    # Spell out the two-pass story rather than leaving "down from 55" to be
+    # decoded. This is the single most confusing line in the old format.
+    if r.confidence_drop:
+        lines.append(
+            f"The first pass scored this {r.original_confidence}. The review then cut "
+            f"it to {r.final_confidence} — {OUTCOME_NOTE.get(r.reflection.outcome, '')}."
+        )
+    elif r.reflection.outcome == "KEEP":
+        lines.append(
+            f"The first pass scored this {r.original_confidence} and the review left "
+            f"it there, finding nothing material to object to."
+        )
 
     if r.final_verdict != r.original_verdict:
         lines.extend(
             [
                 "",
-                f"> The analyst called this "
+                f"> The first pass called this "
                 f"{VERDICT_LABEL.get(r.original_verdict, r.original_verdict).lower()}. "
                 f"The audit withdrew that call.",
             ]
         )
+
+    lines.extend(
+        [
+            "",
+            f"*Everything below is the evidence for that verdict — why it was picked "
+            f"out of the 51, what the analysis argued, what the review objected to, "
+            f"and every figure it was given. It is not a recommendation.*",
+        ]
+    )
 
     lines.extend(_why_it_screened(r.analyzed.enriched.candidate))
     lines.extend(

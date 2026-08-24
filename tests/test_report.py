@@ -188,6 +188,65 @@ class TestReportContent(unittest.TestCase):
         self.assertIn("behaves the same way every time", markdown)
 
 
+class TestJargonIsExplainedBeforeItIsUsed(unittest.TestCase):
+    """A reader who has never seen this project must be able to follow the
+    report. "UNCLEAR at 40/100, down from 55" is meaningless otherwise."""
+
+    def test_all_three_verdicts_are_defined(self):
+        markdown = report.render(make_run())
+        for phrase in ("The fall looks temporary", "Cheap for a real reason",
+                       "Not enough evidence either way"):
+            self.assertIn(phrase, markdown)
+
+    def test_the_confidence_scale_is_defined(self):
+        markdown = report.render(make_run())
+        self.assertIn("80-100", markdown)
+        self.assertIn("0-39", markdown)
+
+    def test_the_two_numbers_are_explained(self):
+        """The single most confusing thing in the old format."""
+        markdown = report.render(make_run())
+        self.assertIn("Why two numbers", markdown)
+        self.assertIn("only lower the score, never raise it", markdown)
+
+    def test_definitions_come_before_the_results(self):
+        markdown = report.render(make_run())
+        self.assertLess(markdown.index("What the words below mean"),
+                        markdown.index("## Results"))
+
+    def test_keep_demote_reject_are_defined(self):
+        markdown = report.render(make_run())
+        for key in ("KEEP", "DEMOTE", "REJECT"):
+            self.assertIn(f"**{key}**", markdown)
+
+    def test_a_bare_score_is_given_a_word(self):
+        markdown = report.render(make_run((make_reflected(final_confidence=40),)))
+        self.assertIn("40/100 — low", markdown)
+
+    def test_a_drop_is_spelled_out_not_abbreviated(self):
+        reflected = make_reflected(
+            analyzed=make_analyzed(confidence=55), final_confidence=40,
+            outcome="DEMOTE",
+        )
+        markdown = report.render(make_run((reflected,)))
+        self.assertIn("The first pass scored this 55", markdown)
+        self.assertIn("cut it to 40", markdown)
+
+    def test_an_unchanged_score_says_so(self):
+        markdown = report.render(make_run((make_reflected(final_confidence=50),)))
+        self.assertIn("the review left it there", markdown)
+
+    def test_the_reader_is_told_this_is_not_a_signal(self):
+        markdown = report.render(make_run())
+        self.assertIn("is a buy or sell signal", markdown)
+        self.assertIn("It is not a recommendation.", markdown)
+
+    def test_confidence_bands_cover_the_whole_range(self):
+        for score, expected in ((95, "high"), (70, "moderate"), (45, "low"),
+                                (10, "very low")):
+            self.assertEqual(report.confidence_band(score)[0], expected, score)
+
+
 class TestTheHonestPartsSurvive(unittest.TestCase):
     """Everything here is something a tidier report would omit."""
 
