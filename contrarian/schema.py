@@ -144,7 +144,7 @@ class Candidate:
 _NUMBER_IN_TEXT = re.compile(r"-?\d[\d,]*\.?\d*")
 
 
-def _numbers_in(text: str) -> list[float]:
+def numbers_in(text: str) -> list[float]:
     """Pull every numeric literal out of a string, tolerating thousands commas."""
     out: list[float] = []
     for match in _NUMBER_IN_TEXT.finditer(text or ""):
@@ -228,7 +228,7 @@ class EnrichedCandidate:
         """
         seen: list[float] = []
         for item in self.headlines:
-            seen.extend(_numbers_in(item.title))
+            seen.extend(numbers_in(item.title))
             if item.age_days is not None:
                 # The prompt labels each headline "[17d ago, ...]", and models
                 # quote that marker back when citing the story.
@@ -312,6 +312,108 @@ class AnalyzedCandidate:
     @property
     def is_grounded(self) -> bool:
         return not self.grounding_issues
+
+
+class Reflection(BaseModel):
+    """Stage 4's audit of a stage-3 verdict. Schema-constrained, fresh context.
+
+    **Field order is load-bearing here too**, for the same reason `Verdict`'s is:
+    constrained decoding emits properties in order, so all five findings are
+    physically written before `outcome` exists. An auditor that picks its verdict
+    first and then assembles findings to justify it is not auditing.
+
+    The five checks are the plan's four, split in two where it matters:
+    `figures_check` asks whether the numbers are real, `claim_check` asks whether
+    the claims built on them follow. That split is the whole reason this stage
+    exists. `analyze.check_grounding` already answers the first question
+    mechanically and better than a model can — it is `claim_check` that closes
+    the documented blind spot, where every figure is real and the relationship
+    between them is invented.
+
+    `adjusted_confidence` is a *request*, not the final word. Design rule 4 says
+    reflection may only lower conviction, and `reflect.apply_asymmetry` enforces
+    that in Python afterwards — a model asked politely not to raise a number will
+    eventually raise one.
+    """
+
+    figures_check: str = Field(
+        description="Does every figure quoted in the note appear in the source data? "
+        "Name any that do not, and say so plainly if all of them do."
+    )
+    claim_check: str = Field(
+        description="Do the note's claims actually follow from the figures? A real "
+        "number can be used to support an invented relationship — check for that "
+        "specifically, including any comparison or percentage the note asserts."
+    )
+    bear_case_engagement: str = Field(
+        description="Was the value-trap case genuinely argued, or raised and dismissed? "
+        "Quote or paraphrase the weakest part."
+    )
+    catalyst_concreteness: str = Field(
+        description="Is there a specific, resolvable reason the dip should reverse, or "
+        "is 'temporary' asserted without a mechanism?"
+    )
+    confidence_calibration: str = Field(
+        description="Does the stated confidence match the strength of the evidence "
+        "presented? Say whether it is too high, about right, or too low."
+    )
+    weaknesses: list[str] = Field(
+        description="The specific defects found, one per item, each naming what is "
+        "wrong rather than restating the check. Empty if the note is sound.",
+        max_length=6,
+    )
+    outcome: Literal["KEEP", "DEMOTE", "REJECT"] = Field(
+        description="KEEP: sound analysis. DEMOTE: usable but materially weakened. "
+        "REJECT: the reasoning does not support presenting this as an opportunity."
+    )
+    adjusted_confidence: int = Field(
+        ge=0, le=100, description="Confidence the evidence actually supports. May be "
+        "lower than the note's, never higher."
+    )
+
+
+@dataclass(frozen=True)
+class ReflectedCandidate:
+    """A verdict after audit: what stage 3 said, what stage 4 found, what stands.
+
+    `final_verdict` and `final_confidence` are the post-asymmetry values and the
+    only ones a report should quote. `overrides` records every place Python
+    overruled the reflector, so a suspiciously generous audit is visible rather
+    than silently applied.
+    """
+
+    analyzed: AnalyzedCandidate
+    reflection: Reflection
+    final_verdict: str
+    final_confidence: int
+    overrides: tuple[str, ...] = ()
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+    @property
+    def symbol(self) -> str:
+        return self.analyzed.symbol
+
+    @property
+    def name(self) -> str:
+        return self.analyzed.enriched.name
+
+    @property
+    def original_verdict(self) -> str:
+        return self.analyzed.verdict.verdict
+
+    @property
+    def original_confidence(self) -> int:
+        return self.analyzed.verdict.confidence
+
+    @property
+    def confidence_drop(self) -> int:
+        return self.original_confidence - self.final_confidence
+
+    @property
+    def survived(self) -> bool:
+        """Did the analysis come through the audit intact?"""
+        return self.reflection.outcome == "KEEP" and not self.overrides
 
 
 @dataclass(frozen=True)

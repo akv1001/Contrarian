@@ -96,6 +96,42 @@ def _fetch_headlines(
     return fresh[:limit]
 
 
+def figure_sheet(enriched: EnrichedCandidate) -> str:
+    """Render the verified figures and headlines as prompt text.
+
+    Lives here rather than in either LLM stage because **both** of them must see
+    exactly the same block. Stage 4 audits stage 3 against the source data, and
+    that audit is only meaningful if the two saw an identical set of numbers — if
+    the reflector were shown even a slightly different sheet, "the note cites a
+    figure that isn't in the data" would be ambiguous between a hallucination and
+    a rendering difference. One function, called twice, removes the ambiguity.
+
+    Each stage supplies its own framing around this; the block itself is neutral.
+    """
+    lines = ["VERIFIED FIGURES"]
+    lines.extend(f"  - {fact}" for fact in enriched.facts)
+
+    lines.extend(["", "RECENT NEWS HEADLINES"])
+    if enriched.headlines:
+        lines.append(
+            f"  ({len(enriched.headlines)} most recent, via {enriched.news_source}. "
+            f"Headlines only — full articles were not retrieved.)"
+        )
+        lines.append("")
+        for item in enriched.headlines:
+            age = f"{item.age_days:.0f}d ago" if item.age_days is not None else "undated"
+            publisher = item.publisher or "unknown source"
+            lines.append(f"  - [{age}, {publisher}] {item.title}")
+    else:
+        # Stated explicitly. An unexplained absence of news is an invitation for
+        # the model to supply what it remembers about the company.
+        lines.append(
+            "  None retrieved. Do not speculate about what the news might say — "
+            "treat the temporary factor as unidentified."
+        )
+    return "\n".join(lines)
+
+
 def build_facts(candidate: Candidate) -> list[Fact]:
     """The figure sheet: every number the model gets, with the maths already done.
 

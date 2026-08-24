@@ -25,6 +25,9 @@ from __future__ import annotations
 
 import re
 
+from pydantic import BaseModel
+
+from .enrich import figure_sheet
 from .llm import LLMError, chat_structured
 from .schema import AnalyzedCandidate, EnrichedCandidate, GroundingIssue, Verdict
 
@@ -92,30 +95,11 @@ def build_prompt(enriched: EnrichedCandidate) -> str:
         f"Company: {enriched.name} ({enriched.symbol}), listed on the NSE.",
         f"Sector: {enriched.sector}",
         "",
-        "VERIFIED FIGURES — these are the only numbers you may use.",
-        "All comparisons below are already calculated. Do not recompute them.",
+        "The figures below are the only numbers you may use. Every comparison in "
+        "them is already calculated. Do not recompute them.",
         "",
+        figure_sheet(enriched),
     ]
-    lines.extend(f"  - {fact}" for fact in enriched.facts)
-
-    lines.extend(["", "RECENT NEWS HEADLINES"])
-    if enriched.headlines:
-        lines.append(
-            f"  ({len(enriched.headlines)} most recent, via {enriched.news_source}. "
-            f"Headlines only — full articles were not retrieved.)"
-        )
-        lines.append("")
-        for item in enriched.headlines:
-            age = f"{item.age_days:.0f}d ago" if item.age_days is not None else "undated"
-            publisher = item.publisher or "unknown source"
-            lines.append(f"  - [{age}, {publisher}] {item.title}")
-    else:
-        # Stated explicitly. An unexplained absence of news is an invitation for
-        # the model to supply what it remembers about the company.
-        lines.append(
-            "  None retrieved. Do not speculate about what the news might say — "
-            "treat the temporary factor as unidentified."
-        )
 
     lines.extend(
         [
@@ -191,11 +175,34 @@ def analyze_all(
     return tuple(out)
 
 
+# Prose fields of a Verdict that carry claims, and so get audited. `verdict` and
+# `confidence` are excluded: one is an enum, the other is a self-report the model
+# is asked to produce rather than a figure it could have got wrong.
+VERDICT_FIELDS = (
+    "temporary_factor",
+    "bull_case",
+    "value_trap_case",
+    "what_would_change_my_mind",
+)
+
+
 def check_grounding(
-    verdict: Verdict,
+    verdict: BaseModel,
     enriched: EnrichedCandidate,
+    *,
+    fields: tuple[str, ...] = VERDICT_FIELDS,
+    also_allowed: tuple[float, ...] = (),
 ) -> tuple[tuple[GroundingIssue, ...], tuple[float, ...]]:
-    """Find numbers in the verdict that do not trace back to the input.
+    """Find numbers in the model's prose that do not trace back to the input.
+
+    `fields` names which prose fields to audit, so stage 4 can run the identical
+    check over a `Reflection` — an auditor that invents figures is no better than
+    the analysis it is auditing.
+
+    `also_allowed` widens the verified pool. Stage 4 needs it: the reflector is
+    shown the note under review, so quoting the note's figures back — including a
+    fabricated one it is reporting *as* fabricated — is the audit working, not a
+    hallucination. Without it the check flags the auditor for doing its job.
 
     Returns `(issues, headline_sourced)`. A figure quoted from a headline is not
     an issue — the model was shown it — but it is tracked separately, because a
@@ -217,13 +224,12 @@ def check_grounding(
     data with fresh eyes. Do not mistake a clean grounding report for a correct
     analysis.
     """
-    verified = enriched.allowed_numbers()
+    verified = enriched.allowed_numbers() + tuple(also_allowed)
     from_news = enriched.headline_numbers()
     issues: list[GroundingIssue] = []
     headline_sourced: list[float] = []
 
-    for field_name in ("temporary_factor", "bull_case", "value_trap_case",
-                       "what_would_change_my_mind"):
+    for field_name in fields:
         text = getattr(verdict, field_name, "") or ""
         for value, decimals, context in _numbers_with_context(text):
             if _is_grounded(value, decimals, verified):

@@ -17,8 +17,8 @@ Full plan: `~/.claude/plans/ok-lets-use-direct-wise-candle.md`
 | 2 | Data layer + Indian-coverage spike | **Done — 51/51 tickers fetch clean** |
 | 3 | Deterministic screen | **Done — 9 survivors of 51** |
 | 4 | Analyze (LLM call 1) | **Done — grounded JSON verdicts** |
-| 5 | Reflect (LLM call 2) | Next |
-| 6 | Report + end-to-end | — |
+| 5 | Reflect (LLM call 2) | **Done — weak-note gate passes** |
+| 6 | Report + end-to-end | Next |
 
 One phase per session. Commit at the end of each, then `/clear` before the next.
 **Update this table when a phase completes** — it is what orients a fresh session.
@@ -205,7 +205,9 @@ soft — the spike scored one value-trap case 60 then 15 on consecutive runs.
 
 Current behaviour: **everything comes back UNCLEAR at 45-55.** Self-consistent with
 "genuinely balanced", and safe given rule 4, but a pipeline that never commits is
-of limited use. Worth watching in Phases 5-6.
+of limited use. Phase 5 improves this a little — reflection spreads the survivors
+to 40/40/55 — but the spread comes from the audit, not from stage 3 committing.
+Still the open question going into Phase 6.
 
 ### What the grounding check does and does not do
 
@@ -217,14 +219,96 @@ tracked separately.
 **It catches invented figures. It does not catch real figures used to support a
 fabricated claim** — the spike's "17.0 is 69.2% below" passes cleanly, because
 both numbers are real. A clean grounding report is not a correct analysis. That
-gap is what Phase 5 exists to close, and there is a test asserting the blind spot
-so it cannot be quietly forgotten.
+gap is what Phase 5 closes via `Reflection.claim_check`, and there is a test
+asserting the blind spot so it cannot be quietly forgotten. A probe handed
+qwen3:14b that exact sentence and it caught the fabricated relationship first
+try — which is the evidence the reflection stage earns its LLM call.
+
+`check_grounding(verdict, enriched, *, fields=..., also_allowed=...)` — `fields`
+lets stage 4 run the identical check over a `Reflection`; `also_allowed` widens
+the verified pool for it. Both default to stage 3's behaviour.
 
 Two live false positives are fixed and regression-tested: rounding is checked at
 the precision the model actually wrote (input 0.033 vs written "0.03"), and
 time-window idioms are stripped so "52-week low" does not report 52 as invented.
 Coincidental collisions remain possible — with ~53 allowed numbers, a written "18%"
 can match an unrelated 18.1% margin. Another reason not to over-trust a clean report.
+
+## Reflect (Phase 5)
+
+Stage 4 re-reads each verdict against the same source data with fresh eyes, and
+answers the question `check_grounding` cannot: do the *claims* follow, not just
+the figures. Output is `KEEP`/`DEMOTE`/`REJECT` plus an adjusted confidence.
+
+```bash
+.venv/bin/python scripts/run_reflect.py --weak ITC     # the phase gate
+.venv/bin/python scripts/run_reflect.py --limit 3      # the real pipeline
+.venv/bin/python scripts/run_reflect.py --show-prompt --limit 1
+```
+
+`--weak` substitutes a note built to fail every check — an invented 34.7% growth
+figure, a mechanism-free catalyst, a one-clause brush-off of the bear case, and
+confidence 88 on all of it. It runs against a real candidate's real data and
+prints GATE PASSED/FAILED rather than output you have to interpret. **Keep it
+working**; it is the only thing that tests whether this stage does anything.
+
+### Both prompts must be built from `enrich.figure_sheet()`
+
+The audit only means something if stage 4 saw exactly what stage 3 saw —
+otherwise "the note cites a figure that isn't in the data" is ambiguous between a
+hallucination and a rendering difference. One function, called by both, and a
+test asserts the rendered block appears verbatim in both prompts.
+
+### The asymmetry is arithmetic, not instruction
+
+`apply_asymmetry()` clamps the result in Python and records every override on
+`ReflectedCandidate.overrides`. Design rule 4 is not left to the model, and the
+live runs show why: **2 of 2 DEMOTEs returned the confidence unchanged** — the
+reflector wrote "materially weakened" and handed back 55 of 55. `DEMOTE_MIN_DROP`
+exists because of exactly that.
+
+- Confidence can never exceed the note's.
+- An ungrounded figure blocks `KEEP` outright.
+- `DEMOTE` must drop at least 15.
+- `REJECT` caps at 20, and withdraws a `TEMPORARY_DISLOCATION` call to `UNCLEAR`.
+- **`VALUE_TRAP` is never rewritten.** Every rule moves conviction *away* from the
+  opportunity, so flipping a value-trap call to UNCLEAR for sloppy reasoning would
+  *raise* conviction — the one thing rule 4 forbids. A badly argued warning is
+  still a warning.
+
+**Relative floors are not enough on their own, and the first gate run proved it.**
+The weak note claimed 88; the reflector demolished it in detail and returned 55.
+Every relative rule was satisfied — a 33-point drop, twice `DEMOTE_MIN_DROP` — and
+a note resting on a fabricated figure still came out a moderate-conviction idea.
+The floor is anchored to a number *the note chose for itself*, so an inflated
+starting confidence drags it up. `UNGROUNDED_CONFIDENCE_CEILING = 25` is absolute
+for that reason. Watch for the same anchoring anywhere else conviction is derived
+from a model-supplied number.
+
+### Live behaviour, 2026-08-24
+
+Three real candidates: COALINDIA `KEEP` 55, ITC and HINDUNILVR `DEMOTE` 55->40
+(both overruled). So the stage discriminates rather than reflexively demoting —
+worth re-checking, since a reflector that demotes everything is as useless as one
+that keeps everything. Post-reflection confidences finally spread (40/40/55)
+where stage 3 alone returns 45-55 for everything.
+
+Run-to-run variance is real here too: the same weak note scored `DEMOTE`/55 and
+then `REJECT`/0 on consecutive runs. The gate passes on both because the clamps
+are mechanical — which is the argument for having them.
+
+### The reflection is itself grounding-checked
+
+`check_reflection_grounding()` runs the same numeric audit over the audit.
+**Its allowed pool is every number in the audit prompt**, not just the verified
+figures — the first live run flagged the reflector three times for correctly
+quoting the note it was reviewing: the fabricated 34.7 it had just caught, and
+the 88 and 100 from "stated confidence 88/100". Reported, never acted on; a bad
+audit is a reason to distrust the audit, not to demote the candidate twice.
+
+Known wart: qwen3:14b sometimes bleeds content across the five finding fields —
+one COALINDIA run put calibration reasoning in `catalyst_concreteness`. Harmless
+for now, but don't build a report that assumes each field stays in its lane.
 
 ## Setup
 
@@ -323,16 +407,20 @@ contrarian/
     news_rss.py  # Google News RSS + CompositeSource + default_source()
     cache.py     # disk cache w/ TTL
   screen.py      # stage 1 — deterministic, no LLM
-  enrich.py      # stage 2 — deterministic; does ALL the arithmetic
+  enrich.py      # stage 2 — deterministic; does ALL the arithmetic + figure_sheet()
   analyze.py     # stage 3 — LLM call 1, + the grounding audit
-  schema.py      # Candidate, Fact, EnrichedCandidate, Verdict, AnalyzedCandidate
-  reflect.py report.py                                   (phases 5-6)
+  reflect.py     # stage 4 — LLM call 2, + the asymmetry clamps
+  schema.py      # Candidate, Fact, EnrichedCandidate, Verdict, AnalyzedCandidate,
+                 #   Reflection, ReflectedCandidate
+  report.py                                              (phase 6)
 scripts/
   smoke_test.py      # phase 1 — one real LLM call
   coverage_spike.py  # phase 2 — the coverage matrix; re-run it when data looks off
   run_screen.py      # phase 3 — ranked survivors, with every filter's numbers
   run_analyze.py     # phase 4 — screen -> enrich -> judge, with grounding report
-tests/  test_data_layer.py  test_screen.py  test_analyze.py   # 102 tests, no network
+  run_reflect.py     # phase 5 — the above plus the audit; --weak is the gate
+tests/  test_data_layer.py  test_screen.py  test_analyze.py  test_reflect.py
+                 # 137 tests, no network
 main.py          # CLI entry point                       (phase 6)
 ```
 
@@ -343,5 +431,5 @@ constructing `YahooSource` at a call site.
 ```bash
 .venv/bin/python scripts/coverage_spike.py            # full matrix, warm cache = seconds
 .venv/bin/python scripts/coverage_spike.py --limit 5 --verbose
-.venv/bin/python -m unittest discover tests           # 102 tests, no network
+.venv/bin/python -m unittest discover tests           # 137 tests, no network
 ```
