@@ -95,14 +95,60 @@ question before any LLM budget is committed.
 ### Why
 
 Stage 3 does not commit. Measured over a full run: **9 of 9 candidates came back
-UNCLEAR, 8 of them at exactly 55.** All the spread in the final report comes from the
-audit, not from the analyst reaching a view.
+UNCLEAR, 8 of them at exactly 55.**
 
 It is currently unknown whether that is the **prompt** (which offers UNCLEAR as an
 explicitly blessed answer, and gets taken up on it every time) or a **14B capability
 ceiling**. Running a stronger model against the identical prompt is the fastest way
 to tell those apart — and it is the cheaper experiment to run first, because if a
 better model commits, the prompt is fine and the ceiling was real.
+
+### The confidence score currently carries almost no information
+
+Worse than "they cluster", and worth understanding before trying to fix it. **The
+final confidences are not judgements at all — they are arithmetic on the starting
+number.** Every value in the last full run:
+
+| Start | Final | Where the final number came from |
+|---|---|---|
+| 55 (x7) | 40 | `55 - DEMOTE_MIN_DROP` |
+| 60 | 45 | `60 - DEMOTE_MIN_DROP` |
+| 55 | 55 | KEEP, left alone |
+| 55 | 25 | `UNGROUNDED_CONFIDENCE_CEILING` (ONGC) |
+
+Nothing in the final column reflects one company being more convincing than another.
+
+**The proof is in the override lines**, and it is easy to miss. On a later run:
+
+```
+ITC:        DEMOTE left confidence at 55; lowered to 40
+HINDUNILVR: DEMOTE left confidence at 55; lowered to 40
+COALINDIA:  DEMOTE left confidence at 45; lowered to 40   <- reviewer said 45
+```
+
+The reviewer genuinely disagreed on Coal India and returned 45. It still landed on
+exactly 40, because anything above the `original - 15` ceiling collapses onto it.
+So identical outputs are **not** three models agreeing — they are one subtraction
+applied three times, hiding the little variation there was.
+
+Two separate causes, and they need separate fixes:
+
+- **The 55 is the model.** `LLM_TEMPERATURE=0.2` makes it near-deterministic, and
+  `analyze.SYSTEM` hands it the band `40-59 genuinely balanced`. It picks "balanced",
+  then reaches for the middle of the range it was shown. It is anchoring on the
+  rubric, not on the company.
+- **The 40 is `reflect.apply_asymmetry`.** That clamp is doing its job — 8 of 8
+  DEMOTEs returned an unchanged or insufficient number, so without it DEMOTE would
+  mean nothing. But it also flattens whatever signal the reviewer did produce.
+
+**Implication for this experiment.** Do not judge a hosted model only on whether the
+verdicts stop being UNCLEAR. Check whether **stage 3's raw confidence varies across
+companies at all** — that is the actual diagnostic, and it is visible before any
+clamping. If a stronger model still parks everything at 55, the rubric is handing out
+the answer and the fix is in the prompt, not the provider.
+
+Worth trying alongside: widen or remove the numeric bands in `analyze.SYSTEM`, or ask
+for confidence last rather than mid-schema, and see whether the clustering moves.
 
 ### Already true, so don't rebuild it
 
@@ -131,9 +177,19 @@ better model commits, the prompt is fine and the ceiling was real.
 .venv/bin/python scripts/run_analyze.py --limit 3
 ```
 
-Run it hosted, and compare the verdict and confidence spread against the recorded
-local baseline (9/9 UNCLEAR, 8 at exactly 55). One command, no code change, and it
-answers the prompt-vs-ceiling question directly.
+Run it hosted, and compare against the recorded local baseline (9/9 UNCLEAR, 8 at
+exactly 55). One command, no code change.
+
+Read the **judging** line, not the summary — that is stage 3's raw score before any
+clamp touches it:
+
+```
+[3/5] judging...
+      UNCLEAR, confidence 55 — grounding clean
+```
+
+If those numbers vary across companies, the 14B model was the ceiling. If they still
+all read 55, the prompt is the problem and no provider will fix it.
 
 ---
 
