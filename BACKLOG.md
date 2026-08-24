@@ -134,3 +134,95 @@ better model commits, the prompt is fine and the ceiling was real.
 Run it hosted, and compare the verdict and confidence spread against the recorded
 local baseline (9/9 UNCLEAR, 8 at exactly 55). One command, no code change, and it
 answers the prompt-vs-ceiling question directly.
+
+---
+
+## 3. Fetch article text for a subset of headlines
+
+**Status:** not started. Shape agreed, blockers measured 2026-08-24.
+
+### The idea
+
+Keep Google News RSS as the headline source. It is free, unlimited, pinned to the
+Indian edition, and supports `after:`/`before:` for item 1. Nothing replaces it.
+
+Then, for **only the 3-4 headlines that look like the temporary factor**, fetch the
+actual article text via a search API (Tavily or similar) and give the model that
+instead of a bare title.
+
+Right now the model infers the whole temporary factor from 15 titles. `summary` is
+`None` — the RSS descriptions are boilerplate link markup, so there is genuinely no
+article text anywhere in the pipeline.
+
+### Blocker 1 (measured): you cannot follow the RSS link
+
+Google News gives a link like `news.google.com/rss/articles/CBMimAFBV...`. Fetching
+it returns **HTTP 200 and a 580KB Google page**, not the article — the redirect to
+the publisher happens in JavaScript. Tested directly; it does not resolve.
+
+**This is why a search API is the right tool and a fetcher/extractor is not.** You
+cannot retrieve the URL you already hold. You have to take the headline text and
+search for the article again. Anyone scoping this will assume it is a two-line
+`urlopen` and lose an afternoon; it isn't.
+
+### Blocker 2 (unsolved): which 3-4 headlines?
+
+Something must choose. Two options, both with a real cost:
+
+- **A keyword rule** — match "results", "downgrade", "tax", "fine", "guidance".
+  Cheap, deterministic, no extra LLM call. Crude, and will miss unusual phrasing,
+  which is often the interesting case.
+- **Ask the model** — much better selection, but it is a **third LLM call**, and
+  "exactly two LLM calls" is a load-bearing design rule. Breaking it is a decision to
+  take deliberately, not a detail to slip in.
+
+No obvious right answer. This is the part to think hardest about.
+
+### The cost that is easy to miss
+
+Article bodies enlarge the **untrusted number pool**. Measured on ITC: the pool is
+currently 30 values (15 from titles, 15 age markers), against 53 verified values (43
+unique). Three or four full articles could triple the untrusted side.
+
+That directly weakens `check_grounding()` — with more numbers allowed, coincidental
+matches get likelier, and a written "18%" matching an unrelated 18.1% is already a
+documented problem. **Richer context is bought with a weaker hallucination check.**
+Worth it only if the articles measurably improve verdicts.
+
+Also note the precision issue compounds. 3 of ITC's 15 headlines were about **ITC
+Hotels**, a separately listed company since the 2025 demerger. Fetching the full text
+of a wrong-company headline is worse than showing the wrong title — more words, more
+numbers, more conviction behind a false story.
+
+### Tavily specifics worth knowing up front
+
+- **1,000 free credits/month**, no credit card. Basic search 1 credit, advanced 2.
+- Fine for normal runs (~9 news fetches each). **Not fine for item 1's backtest** —
+  51 tickers x 8 dates = 408 queries per sweep. Another reason RSS stays.
+- **`country` targeting only works when `topic` is `general`, not `news`.** So you
+  cannot have news-optimised ranking *and* India targeting at once. Given that the
+  India edition pinning is what keeps US "Reliance" (Reliance Steel, NYSE: RS) out of
+  the results, do not assume a Western index will do better on NSE names.
+- Free tiers are a dependency with a shelf life — Brave removed its 5,000/month free
+  plan in Feb 2026. Weigh that against RSS's different failure mode (unofficial, may
+  break, but free forever).
+
+### How to evaluate it
+
+The seams already exist. `MarketDataSource` is a Protocol and `CompositeSource`
+composes fundamentals and news independently, so a `TavilyNews` class is a drop-in
+with no stage changes. `scripts/coverage_spike.py` already compares sources
+head-to-head — `yahoo.py` keeps its `news()` *only* so that comparison can be re-run.
+Add a third source to that spike.
+
+**Then ignore the summary statistic and read a real prompt.** The Phase 2 metric
+scored the broken ITC query at 87% "name-matched" while a third of the results were
+about Input Tax Credit and ITC Hotels. The measurement was blind to the exact failure
+it existed to detect.
+
+### Priority
+
+**Below item 2.** The model currently answers UNCLEAR to all nine candidates. Better
+news would be improving the input to a stage that is not using the input it already
+has. Fix the clustering first, then find out whether news depth is what is still
+missing.
