@@ -502,7 +502,11 @@ class PipelineRun:
 
     @property
     def llm_calls(self) -> int:
-        """Two per candidate that completed. The project's whole budget."""
+        """Two per candidate that completed — the analysis and the audit.
+
+        Hard-coded to the current two-stage shape. If a stage that calls a model is
+        ever added, count the calls rather than multiplying.
+        """
         return 2 * len(self.reflected)
 
     @property

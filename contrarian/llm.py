@@ -1,9 +1,12 @@
 """The single entry point for every LLM call in this project.
 
-Only two stages ever call this module: analyze.py (stage 3) and reflect.py
-(stage 4). Screening, enrichment, and reporting are deterministic Python and
-must stay that way — every extra LLM call is another chance for a number to
-drift away from its source.
+Currently two stages call this module: analyze.py (stage 3) and reflect.py
+(stage 4). That count is not sacred — a future stage may well need a model.
+
+What is load-bearing is the other side of the split: **screening, enrichment and
+reporting must stay deterministic**. Those stages do arithmetic, filtering and
+formatting, all of which a computer does exactly. Routing any of them through a
+model would add a chance for a number to drift from its source and buy nothing.
 
 Provider is decided entirely by config (base_url + model), so this file has no
 provider-specific branching in it.

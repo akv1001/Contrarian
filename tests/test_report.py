@@ -180,9 +180,12 @@ class TestReportContent(unittest.TestCase):
         self.assertIn("The discount claim is inflated.", markdown)
         self.assertIn("Do the claims follow", markdown)
 
-    def test_two_llm_calls_are_reported_as_the_whole_budget(self):
-        markdown = report.render(make_run())
-        self.assertIn("exactly two per candidate", markdown)
+    def test_the_deterministic_stages_are_named_as_such(self):
+        """The reader needs to know which parts a model touched. The call count
+        is incidental; the split is what matters."""
+        markdown = report.render(make_run()).replace("\n", " ")
+        self.assertIn("grounding checks and this report do not", markdown)
+        self.assertIn("behaves the same way every time", markdown)
 
 
 class TestTheHonestPartsSurvive(unittest.TestCase):

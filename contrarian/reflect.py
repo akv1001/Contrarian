@@ -1,4 +1,4 @@
-"""Stage 4 — audit the verdicts. LLM call 2 of exactly two, and the last one.
+"""Stage 4 — audit the verdicts. The second stage that uses a model.
 
 Stage 3 produces a judgment. This stage asks a second, *uncontaminated* reader
 whether that judgment survives contact with the same source data.

@@ -170,13 +170,18 @@ search for the article again. Anyone scoping this will assume it is a two-line
 Something must choose. Two options, both with a real cost:
 
 - **A keyword rule** — match "results", "downgrade", "tax", "fine", "guidance".
-  Cheap, deterministic, no extra LLM call. Crude, and will miss unusual phrasing,
-  which is often the interesting case.
-- **Ask the model** — much better selection, but it is a **third LLM call**, and
-  "exactly two LLM calls" is a load-bearing design rule. Breaking it is a decision to
-  take deliberately, not a detail to slip in.
+  Cheap, deterministic, no extra call. Crude, and will miss unusual phrasing, which
+  is often the interesting case.
+- **Ask the model** — much better selection, at the cost of a third LLM call.
 
-No obvious right answer. This is the part to think hardest about.
+**A third call is allowed.** The call count is not a constraint; the deterministic
+split is. Adding a small selection call keeps screen, enrich and report exactly as
+they are, so nothing load-bearing changes. Weigh it on latency (~30-60s per
+candidate) and on the fact that it is one more place a model can be wrong — not on
+a budget.
+
+Leaning: try the keyword rule first, since it is nearly free and would establish
+whether article text helps at all before adding a call to select it better.
 
 ### The cost that is easy to miss
 

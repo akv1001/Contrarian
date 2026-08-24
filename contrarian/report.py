@@ -98,7 +98,7 @@ def _header(run: PipelineRun) -> str:
         f"{len(screen.rejected)} rejected",
         f"- **Judged and audited:** {len(run.reflected)} of {run.attempted} attempted",
         f"- **Model:** {run.model} via {run.provider}",
-        f"- **LLM calls:** {run.llm_calls} — exactly two per candidate, "
+        f"- **LLM calls:** {run.llm_calls} — two per candidate, "
         f"{run.total_tokens:,} tokens",
     ]
     if run.duration_seconds:
@@ -428,9 +428,9 @@ def _how_to_read() -> str:
             "",
             "## How to read this",
             "",
-            "The pipeline makes **exactly two LLM calls per candidate** and nothing "
-            "else it does involves a model. The screen, the arithmetic, the "
-            "grounding checks and this report are all deterministic Python.",
+            "Two of the five stages use a language model — the verdict and the audit. "
+            "**The screen, the arithmetic, the grounding checks and this report do "
+            "not.** Those are ordinary code that behaves the same way every time.",
             "",
             "- **Every number came from the data layer.** The model was handed "
             "finished comparisons — \"a 75% discount to the sector median of 69.2\" "

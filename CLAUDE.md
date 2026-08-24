@@ -28,7 +28,15 @@ One phase per session. Commit at the end of each, then `/clear` before the next.
 
 ## Pipeline
 
-Exactly **two LLM calls** in the whole pipeline. Everything else is deterministic.
+**Two stages use an LLM; the rest are deterministic.** That split is the load-bearing
+part — *not* the call count. Two calls is what the current design happens to need, not
+a budget to defend. If the architecture wants a third (say, picking which headlines to
+fetch in full), add it deliberately and keep the deterministic stages deterministic.
+
+What must stay true, whatever the count:
+- **Screen, enrich and report never call a model.** Arithmetic, filtering and
+  formatting are exact operations; routing them through a model only adds drift.
+- **Each LLM stage is a fresh call.** No stage continues another's conversation.
 
 | # | Stage | Module | LLM? |
 |---|---|---|---|

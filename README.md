@@ -15,8 +15,12 @@ it, not just tickers.
 
 ## What it does
 
-Five stages, and **exactly two LLM calls per candidate**. Everything else is
-deterministic Python.
+Five stages. **Two of them use a language model; three are ordinary Python that
+behaves the same way every time.**
+
+That split is the point. Anything a computer can do exactly — arithmetic,
+comparisons, filtering, formatting — is kept away from the model, because the model
+is the part that can be confidently wrong.
 
 | # | Stage | What happens | LLM? |
 |---|---|---|---|
@@ -25,6 +29,91 @@ deterministic Python.
 | 3 | Analyze | Temporary dip, or value trap? | **Yes** |
 | 4 | Reflect | A fresh reader audits the verdict | **Yes** |
 | 5 | Report | Markdown, figures beside the reasoning | No |
+
+## The stages in detail
+
+### 1. Screen — narrow 51 stocks to a handful
+
+Downloads price history and financial statements for all 51 Nifty 50 companies,
+then applies nine fixed rules. No AI involved — just comparisons against hard-coded
+thresholds.
+
+The rules test three things: is the price **beaten down** (at most 40% up its
+52-week range, *and* at least 15% below its high), is the business **sound** (positive
+free cash flow, debt under 1.5x equity, return on equity above 10%), and is it
+**cheap against its own sector** (P/E below the sector median).
+
+Banks get a different rule set. Free cash flow and debt ratios don't mean the same
+thing for a lender, where borrowing is the raw material rather than a warning sign.
+
+Everything is fetched before anything is filtered, because you can't know the IT
+sector's median P/E until every IT stock has landed. Typical result: **9 survivors of
+51.** Rejections are kept, not discarded — they're how you tell whether a threshold
+is doing real work.
+
+### 2. Enrich — assemble what the model is allowed to know
+
+For each survivor only, this fetches recent news headlines and **does all the
+arithmetic in advance**.
+
+Every comparison is worked out in Python and handed over as a finished sentence.
+The model receives:
+
+> `Valuation vs peers: P/E of 16.9 — a 75% discount to the Consumer median of 68.9`
+
+It does not receive "16.9" and "68.9" as two separate numbers to compare. The 75% is
+already calculated. This is the single most important defence in the project, and
+[it earned itself](#why-it-is-built-this-way).
+
+News comes from Google News RSS, pinned to the Indian edition, filtered to the 15
+most recent headlines within 90 days. Headlines only — no article text.
+
+### 3. Analyze — the judgement call *(LLM)*
+
+One call per candidate, each in isolation so a strong story about one company can't
+colour the verdict on the next.
+
+The model is given the figure sheet, the headlines, and one question: is this price
+depressed by something **temporary**, or is it cheap for a **real structural
+reason**?
+
+It must answer in a fixed JSON structure, and the order of fields is deliberate.
+The bear case comes *before* the verdict, so the model physically writes the argument
+against the stock before it has committed to an opinion. It can't reach a conclusion
+and then work backwards to justify it.
+
+Afterwards — in Python, not by the model — every number in the answer is traced back
+to its source. Anything untraceable is flagged as invented.
+
+### 4. Reflect — audit the verdict *(LLM)*
+
+A second call re-reads the verdict against the same source data.
+
+Three things make this more than a rubber stamp. It runs with **no memory of the
+first call**, so it isn't defending its own reasoning. The verdict is shown
+**unattributed** — as a note from an unnamed analyst, not as "your earlier answer."
+And it sees **byte-for-byte the same figures**, so "this cites a number that isn't in
+the data" can't be a rendering difference.
+
+It returns KEEP, DEMOTE or REJECT with an adjusted confidence. **The adjustment can
+only lower conviction, never raise it** — and that's enforced by Python afterwards,
+not requested in the prompt. Worth it: across a full run, 8 of 8 demotions came back
+with the confidence unchanged. The model said "materially weakened" and handed back
+the same number every time.
+
+### 5. Report — write it up
+
+Turns everything into a Markdown file. No model involved, deliberately — by this
+point every figure has been sourced, computed, and checked twice, and running it
+through a model again would reintroduce exactly the drift the other four stages
+exist to prevent.
+
+Each candidate gets its screen results with the numbers, the verdict, the audit's
+findings, the full figure sheet, and the headlines. The figures sit **next to** the
+reasoning that uses them, so a doubtful sentence can be checked without leaving the
+page.
+
+## Why it is built this way
 
 The design assumes the model will get numbers wrong, because in financial QA it
 silently does — confident wrong figures that survive a skim. So:

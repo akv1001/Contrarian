@@ -1,4 +1,4 @@
-"""Stage 3 — the judgment call. LLM call 1 of exactly two.
+"""Stage 3 — the judgment call. The first of the two stages that use a model.
 
 Asks one question per candidate: is this price depressed by something temporary,
 or is it cheap for a real structural reason?
