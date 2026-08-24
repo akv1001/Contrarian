@@ -95,11 +95,48 @@ first call**, so it isn't defending its own reasoning. The verdict is shown
 And it sees **byte-for-byte the same figures**, so "this cites a number that isn't in
 the data" can't be a rendering difference.
 
-It returns KEEP, DEMOTE or REJECT with an adjusted confidence. **The adjustment can
-only lower conviction, never raise it** — and that's enforced by Python afterwards,
-not requested in the prompt. Worth it: across a full run, 8 of 8 demotions came back
-with the confidence unchanged. The model said "materially weakened" and handed back
-the same number every time.
+#### What it checks
+
+Five things, in order of how much they matter:
+
+1. **Does a claim actually follow from the figures?** The most important check, and
+   the easiest to miss, because this kind of error hides behind real numbers. A note
+   can quote two genuine figures and state a false relationship between them.
+2. **Is every figure actually in the source data?** Already checked mechanically
+   before the reviewer sees it, so this is handed over as a finding rather than
+   redone.
+3. **Was the bear case genuinely argued, or raised and waved away?**
+4. **Is the "temporary" factor concrete?** Is there a specific reason the price
+   should recover, or is it just asserted?
+5. **Does the stated confidence match the evidence?**
+
+#### The three outcomes
+
+| Outcome | When | What it does to the score |
+|---|---|---|
+| **KEEP** | Nothing material is wrong. The conclusion follows from the data. | Left alone — but can never be raised |
+| **DEMOTE** | Real weaknesses found, but the analysis is still usable | Must drop by at least 15 points |
+| **REJECT** | The reasoning doesn't support putting this forward at all | Capped at 20, and a "temporary dislocation" call is withdrawn |
+
+There is **no threshold or formula** picking between them. It's the reviewer's
+judgement, guided by the definitions above. That makes it soft: the same deliberately
+bad note scored DEMOTE/55 on one run and REJECT/0 on the next.
+
+Two things are *not* left to judgement, and Python enforces them afterwards:
+
+- **If the note cites a figure that exists nowhere in the data, KEEP is
+  unreachable.** That isn't an opinion — the note references something that doesn't
+  exist. Confidence is also capped at 25 regardless of what the reviewer decided.
+- **The score can only fall, never rise.** Deliberate asymmetry: missing an
+  opportunity costs nothing, recommending a value trap is expensive.
+
+That second rule earns its keep. Across a full run, **8 of 8 demotions came back with
+the confidence unchanged** — the reviewer wrote "materially weakened" and handed back
+the same number every time. Without the clamp, DEMOTE would be a label with no
+consequence.
+
+In practice a typical run returns mostly DEMOTE, the occasional KEEP, and REJECT
+rarely — usually only when a figure was invented.
 
 ### 5. Report — write it up
 
