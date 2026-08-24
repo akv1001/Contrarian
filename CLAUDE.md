@@ -394,10 +394,17 @@ claims, and the gap between them is the whole remaining risk.
 **The one test that would actually matter has not been built.** The plan's
 verification section calls for a labelled set of past Nifty 50 situations —
 genuine temporary dips against known value traps — measuring whether the pipeline
-flags the traps. Nothing else tests whether the output is any good; 163 unit
+flags the traps. Nothing else tests whether the output is any good; 168 unit
 tests and a weak-note gate only establish that the machinery behaves. If you pick
 this up again, build that set first. It is the difference between a working
 program and a useful one.
+
+**Deferred work lives in `BACKLOG.md`** — that set, plus trying a free-tier hosted
+model. Read it before scoping either: it records feasibility that was *measured*
+rather than assumed, and the measurements reverse the obvious conclusion. A
+point-in-time backtest looks impossible on a free stack and is not — historical
+news works via `after:`/`before:` on the RSS query, and point-in-time fundamentals
+are derivable even though `.info` is current-only.
 
 Known limits, in rough order of how much they should worry you:
 
