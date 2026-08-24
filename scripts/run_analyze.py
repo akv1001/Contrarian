@@ -147,14 +147,20 @@ def _print_verdict(outcome: AnalyzedCandidate) -> None:
     print(f"\n    What would change its mind:")
     print(_wrap(v.what_would_change_my_mind))
 
-    if outcome.grounding_issues:
-        print(f"\n    !! GROUNDING: {len(outcome.grounding_issues)} figure(s) "
+    if outcome.fabricated_figures:
+        print(f"\n    !! GROUNDING: {len(outcome.fabricated_figures)} figure(s) "
               f"not traceable to the input")
-        for issue in outcome.grounding_issues:
+        for issue in outcome.fabricated_figures:
             print(f"       - {issue.field}: {issue.value:g}")
             print(_wrap(f'"{issue.context}"', indent=9))
     else:
         print(f"\n    grounding: clean — every figure traces to the input")
+
+    if outcome.hypothetical_figures:
+        # "Brent below $70/bbl" is a proposed test, not a claim about today.
+        cited = ", ".join(f"{i.value:g}" for i in outcome.hypothetical_figures)
+        print(f"    note: {len(outcome.hypothetical_figures)} proposed threshold(s) "
+              f"in 'what would change my mind' ({cited}) — not penalised")
 
     if outcome.headline_sourced:
         cited = ", ".join(f"{v:g}" for v in outcome.headline_sourced)
@@ -172,13 +178,17 @@ def _print_summary(analyzed: list[AnalyzedCandidate], attempted: int) -> int:
         return 1
 
     for outcome in analyzed:
-        flag = "" if outcome.is_grounded else f"  !! {len(outcome.grounding_issues)} ungrounded"
+        flag = (
+            f"  !! {len(outcome.fabricated_figures)} ungrounded"
+            if outcome.fabricated_figures
+            else ""
+        )
         print(
             f"  {outcome.symbol:12} {VERDICT_LABEL.get(outcome.verdict.verdict, '?'):22}"
             f" conf {outcome.verdict.confidence:>3}{flag}"
         )
 
-    ungrounded = [o for o in analyzed if not o.is_grounded]
+    ungrounded = [o for o in analyzed if o.fabricated_figures]
     tokens = sum(o.prompt_tokens + o.completion_tokens for o in analyzed)
     print(f"\n  {len(analyzed)}/{attempted} analyzed, {tokens:,} tokens total")
 

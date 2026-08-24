@@ -7,6 +7,9 @@
 # Cached market data (Phase 2)
 .cache/
 
+# Generated reports (Phase 6) — regenerate with `python main.py`
+reports/
+
 # Python
 __pycache__/
 *.py[cod]

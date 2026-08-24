@@ -140,6 +140,54 @@ class TestAsymmetryIsEnforcedInPython(unittest.TestCase):
         _, confidence, _ = apply(analyzed, outcome="KEEP", adjusted_confidence=70)
         self.assertEqual(confidence, 70)
 
+
+class TestHypotheticalThresholdsAreNotFabrications(unittest.TestCase):
+    """From the first full run. ONGC's note was flagged for `70` and `20` — "a
+    sustained drop in Brent below $70/bbl" and "a 20%+ rise in the share price" —
+    both in `what_would_change_my_mind`, which *asks* for a future threshold.
+    Treated as fabrications they tripped the absolute ceiling and gave ONGC the
+    harshest treatment in the run, for answering the question it was asked."""
+
+    def _with_hypothetical(self, confidence=55):
+        return make_analyzed(
+            confidence=confidence,
+            issues=(
+                GroundingIssue(
+                    "what_would_change_my_mind", 70.0, "Brent below $70/bbl."
+                ),
+            ),
+        )
+
+    def test_a_proposed_threshold_does_not_trip_the_absolute_ceiling(self):
+        _, confidence, overrides = apply(
+            self._with_hypothetical(), outcome="KEEP", adjusted_confidence=55
+        )
+        self.assertEqual(confidence, 55)
+        self.assertEqual(overrides, ())
+
+    def test_a_proposed_threshold_does_not_block_keep(self):
+        analyzed = self._with_hypothetical()
+        self.assertEqual(analyzed.fabricated_figures, ())
+        self.assertEqual(len(analyzed.hypothetical_figures), 1)
+
+    def test_a_fabrication_in_a_factual_field_still_bites(self):
+        analyzed = make_analyzed(
+            confidence=88,
+            issues=(
+                GroundingIssue("bull_case", 34.7, "Revenue grew 34.7%."),
+                GroundingIssue("what_would_change_my_mind", 70.0, "Brent below $70."),
+            ),
+        )
+        _, confidence, overrides = apply(analyzed, outcome="KEEP", adjusted_confidence=88)
+        self.assertEqual(confidence, reflect.UNGROUNDED_CONFIDENCE_CEILING)
+        self.assertTrue(any("forced to DEMOTE" in o for o in overrides))
+
+    def test_the_reflector_is_not_told_a_threshold_is_a_fabrication(self):
+        prompt = reflect.build_prompt(self._with_hypothetical())
+        self.assertIn("hypothetical future levels", prompt)
+        self.assertNotIn("2 figure(s) in the note do NOT appear", prompt)
+        self.assertIn("traces back to the source data", prompt)
+
     def test_clean_keep_leaves_everything_alone(self):
         analyzed = make_analyzed(confidence=55)
         verdict, confidence, overrides = apply(analyzed, adjusted_confidence=55)

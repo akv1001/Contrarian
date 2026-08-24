@@ -18,7 +18,10 @@ Full plan: `~/.claude/plans/ok-lets-use-direct-wise-candle.md`
 | 3 | Deterministic screen | **Done — 9 survivors of 51** |
 | 4 | Analyze (LLM call 1) | **Done — grounded JSON verdicts** |
 | 5 | Reflect (LLM call 2) | **Done — weak-note gate passes** |
-| 6 | Report + end-to-end | Next |
+| 6 | Report + end-to-end | **Done — `main.py` runs cold** |
+
+All six phases are complete. The project runs end to end; what is left is
+judgement about whether the output is any good — see *Where this stands*.
 
 One phase per session. Commit at the end of each, then `/clear` before the next.
 **Update this table when a phase completes** — it is what orients a fresh session.
@@ -310,6 +313,110 @@ Known wart: qwen3:14b sometimes bleeds content across the five finding fields �
 one COALINDIA run put calibration reasoning in `catalyst_concreteness`. Harmless
 for now, but don't build a report that assumes each field stays in its lane.
 
+## Report + end-to-end (Phase 6)
+
+```bash
+.venv/bin/python main.py                # every survivor; ~2 min each, two LLM calls
+.venv/bin/python main.py --limit 3      # a quick look
+.venv/bin/python main.py --refresh      # cold cache
+.venv/bin/python main.py --out -        # print instead of writing
+```
+
+Writes `reports/contrarian-YYYY-MM-DD.md` (gitignored — regenerate it, don't
+commit it). `report.render()` takes a `PipelineRun` and returns a string, so the
+whole renderer is testable without touching the filesystem or the network.
+
+**`report.py` makes no LLM call, and `tests/test_report.py` asserts that
+structurally** — it parses the module's AST and fails if `llm` or `openai` is
+ever imported. Design rule 2 is the easiest one to break by accident, because
+"just summarise this nicely at the end" is such a natural thing to reach for, and
+it would undo four stages of grounding work in the one artefact a human reads.
+
+The report puts **the source figures next to the reasoning that leans on them**,
+per candidate — not in an appendix. The failure mode this project is built around
+is a confident sentence containing a wrong number, and the only real defence is
+putting the number where a reader trips over it. Each candidate section carries
+the screen's filters with their numbers, the analyst note, the audit's five
+findings, any overrides, the full figure sheet, and the headlines.
+
+Ordering is verdict class, then **post-audit** confidence — never the analyst's
+stated number, so an idea the audit knocked down cannot lead the report on the
+strength of a confidence that was withdrawn. The report says in as many words
+that this is not a ranking of investment merit.
+
+`main.py` records three distinct kinds of not-making-it, and the appendix keeps
+them apart: **rejected** by the screen, **skipped** (screened through, but an LLM
+stage failed), and **fetch errors** (never evaluated at all). Collapsing those
+would overstate how much of the universe was actually examined.
+
+Headline links are **reference-style**. Google News RSS returns ~700-character
+base64 redirect URLs; inline, a dozen of them bury the headlines and make the raw
+file unreadable, and this report gets read in an editor as often as rendered.
+
+### Live cold-cache run, 2026-08-24
+
+`rm -rf .cache/ && .venv/bin/python main.py` — 9 survivors, 18 LLM calls, 52,508
+tokens, **24 minutes**, 1,114-line report. Every candidate came back UNCLEAR;
+1 KEEP (HINDUNILVR), 8 DEMOTE, 0 REJECT.
+
+**8 of 8 DEMOTEs required the `DEMOTE_MIN_DROP` override.** Five returned the
+confidence completely unchanged, three lowered it by less than the floor. Phase 5
+saw this 2 times out of 2 and it looked like a small sample; at full scale it is
+the rule, not the exception. Design rule 4 is doing real work every single run —
+without the Python clamp, "DEMOTE" would be a label with no consequence.
+
+### A number in "what would change my mind" is not a fabrication
+
+ONGC's verdict was flagged for `70` and `20` — *"a sustained drop in Brent below
+$70/bbl"* and *"a 20%+ rise in the share price"*. Both are in
+`what_would_change_my_mind`, a field that **asks** the model to name a future
+threshold. Proposing a test requires choosing a number, and that number is not a
+claim about the present, so it cannot trace to the input and should not.
+
+Scored as fabrications they tripped `UNGROUNDED_CONFIDENCE_CEILING` and gave ONGC
+the harshest treatment in the run (55 → 25) for answering the question it was
+asked. `AnalyzedCandidate.fabricated_figures` now excludes `HYPOTHETICAL_FIELDS`;
+only it carries a mechanical penalty, while `hypothetical_figures` is still
+reported everywhere so a genuinely invented statistic hiding in that field is
+visible to a human. Post-fix, ONGC lands at 65 → 50 via the ordinary DEMOTE floor.
+
+**The general lesson is worth keeping.** The grounding check tests traceability,
+and traceability is only the right question for fields that assert something
+about the present. Adding a field that invites a counterfactual means adding it
+to `HYPOTHETICAL_FIELDS` at the same time.
+
+## Where this stands
+
+All six phases are done and the pipeline runs end to end from a cold cache. What
+that establishes is that **it runs**, not that it works. Those are different
+claims, and the gap between them is the whole remaining risk.
+
+**The one test that would actually matter has not been built.** The plan's
+verification section calls for a labelled set of past Nifty 50 situations —
+genuine temporary dips against known value traps — measuring whether the pipeline
+flags the traps. Nothing else tests whether the output is any good; 163 unit
+tests and a weak-note gate only establish that the machinery behaves. If you pick
+this up again, build that set first. It is the difference between a working
+program and a useful one.
+
+Known limits, in rough order of how much they should worry you:
+
+1. **Stage 3 does not commit.** Measured across a full run: **9 of 9 came back
+   UNCLEAR**, 8 of them at exactly 55. Reflection spreads them to 25-55, but that
+   spread comes from the audit, not from the analyst reaching a view. A pipeline
+   that never commits is safe and of limited use, and this is the first thing to
+   attack — probably in the stage-3 prompt, which currently offers UNCLEAR as an
+   explicitly blessed answer and gets taken up on it every time.
+2. **Confidence is soft.** The same value-trap case scored 60 then 15 on
+   consecutive runs; the same weak note scored DEMOTE/55 then REJECT/0. The
+   mechanical clamps are what make the output stable, not the model.
+3. **The peer universe is 51 stocks.** "Cheap vs peers" is weak in small sectors
+   and nearly free in a sector that derated together. See the Phase 3 weaknesses.
+4. **A 14B local model is doing the judging.** Zero-cost is a hard constraint, so
+   this is the trade; the grounding architecture exists largely to compensate.
+5. **Headlines only, never article bodies.** The temporary factor is inferred
+   from titles.
+
 ## Setup
 
 ```bash
@@ -410,9 +517,9 @@ contrarian/
   enrich.py      # stage 2 — deterministic; does ALL the arithmetic + figure_sheet()
   analyze.py     # stage 3 — LLM call 1, + the grounding audit
   reflect.py     # stage 4 — LLM call 2, + the asymmetry clamps
+  report.py      # stage 5 — Markdown, deterministic, NO LLM (rule 2)
   schema.py      # Candidate, Fact, EnrichedCandidate, Verdict, AnalyzedCandidate,
-                 #   Reflection, ReflectedCandidate
-  report.py                                              (phase 6)
+                 #   Reflection, ReflectedCandidate, ScreenResult, PipelineRun
 scripts/
   smoke_test.py      # phase 1 — one real LLM call
   coverage_spike.py  # phase 2 — the coverage matrix; re-run it when data looks off
@@ -420,8 +527,9 @@ scripts/
   run_analyze.py     # phase 4 — screen -> enrich -> judge, with grounding report
   run_reflect.py     # phase 5 — the above plus the audit; --weak is the gate
 tests/  test_data_layer.py  test_screen.py  test_analyze.py  test_reflect.py
-                 # 137 tests, no network
-main.py          # CLI entry point                       (phase 6)
+        test_report.py                                   # 168 tests, no network
+main.py          # phase 6 — wires all five stages, writes the report
+reports/         # generated, gitignored
 ```
 
 `data/source.py` is the swap seam: `screen.py` and `enrich.py` depend on the protocol,
@@ -431,5 +539,5 @@ constructing `YahooSource` at a call site.
 ```bash
 .venv/bin/python scripts/coverage_spike.py            # full matrix, warm cache = seconds
 .venv/bin/python scripts/coverage_spike.py --limit 5 --verbose
-.venv/bin/python -m unittest discover tests           # 137 tests, no network
+.venv/bin/python -m unittest discover tests           # 168 tests, no network
 ```

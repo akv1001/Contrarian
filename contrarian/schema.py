@@ -292,6 +292,14 @@ class GroundingIssue:
         return f"{self.field}: {self.value:g} not in input — \"{self.context}\""
 
 
+# Verdict fields that are counterfactual *by construction*. `what_would_change_my_mind`
+# asks the model to name a future data point that would move it — "Brent below
+# $70/bbl", "a 20%+ rise over six months". Proposing a threshold requires choosing a
+# number, and that number is not meant to describe the present, so it cannot be traced
+# to the input and should not be. See `AnalyzedCandidate.fabricated_figures`.
+HYPOTHETICAL_FIELDS = frozenset({"what_would_change_my_mind"})
+
+
 @dataclass(frozen=True)
 class AnalyzedCandidate:
     """A verdict bound to the candidate it judges, plus the grounding audit."""
@@ -312,6 +320,35 @@ class AnalyzedCandidate:
     @property
     def is_grounded(self) -> bool:
         return not self.grounding_issues
+
+    @property
+    def fabricated_figures(self) -> tuple[GroundingIssue, ...]:
+        """Ungrounded figures that assert something about the *present*.
+
+        The distinction earned itself on the first full run. ONGC's verdict was
+        flagged for `70` and `20` — "a sustained drop in Brent below $70/bbl" and
+        "a 20%+ rise in the share price" — both in `what_would_change_my_mind`,
+        both proposed tests rather than claims. Treated as fabrications they
+        tripped `UNGROUNDED_CONFIDENCE_CEILING` and handed ONGC the harshest
+        treatment in the run, for the offence of answering the question it was
+        asked.
+
+        Only these carry a mechanical penalty. Everything is still *reported* —
+        see `hypothetical_figures` — because a genuinely invented statistic could
+        hide in that field too, and a human reading the report should see it.
+        """
+        return tuple(
+            issue for issue in self.grounding_issues
+            if issue.field not in HYPOTHETICAL_FIELDS
+        )
+
+    @property
+    def hypothetical_figures(self) -> tuple[GroundingIssue, ...]:
+        """Untraceable numbers in a field that asks for a hypothetical."""
+        return tuple(
+            issue for issue in self.grounding_issues
+            if issue.field in HYPOTHETICAL_FIELDS
+        )
 
 
 class Reflection(BaseModel):
@@ -434,3 +471,46 @@ class ScreenResult:
     @property
     def evaluated(self) -> int:
         return len(self.passed) + len(self.rejected)
+
+
+@dataclass(frozen=True)
+class PipelineRun:
+    """One complete pass through all five stages — everything the report prints.
+
+    `report.py` takes this and nothing else. That is what keeps design rule 2
+    enforceable: a renderer that receives a finished record has no reason to
+    reach for a model, and no data it would need one to obtain.
+
+    `skipped` records candidates that screened through but whose LLM stages
+    failed. Kept separate from a screen rejection for the same reason
+    `ScreenResult.errors` is: a candidate we could not judge is not a candidate
+    we judged and dismissed, and collapsing the two would overstate how much of
+    the universe was actually examined.
+    """
+
+    as_of: datetime
+    screen: ScreenResult
+    reflected: tuple[ReflectedCandidate, ...]
+    model: str = "unknown"
+    provider: str = "unknown"
+    skipped: tuple[tuple[str, str], ...] = ()
+    duration_seconds: float = 0.0
+
+    @property
+    def attempted(self) -> int:
+        return len(self.reflected) + len(self.skipped)
+
+    @property
+    def llm_calls(self) -> int:
+        """Two per candidate that completed. The project's whole budget."""
+        return 2 * len(self.reflected)
+
+    @property
+    def total_tokens(self) -> int:
+        return sum(
+            r.prompt_tokens
+            + r.completion_tokens
+            + r.analyzed.prompt_tokens
+            + r.analyzed.completion_tokens
+            for r in self.reflected
+        )

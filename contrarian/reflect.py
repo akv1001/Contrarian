@@ -179,12 +179,13 @@ def _automated_findings(analyzed: AnalyzedCandidate) -> list[str]:
     """
     lines = ["AUTOMATED CHECKS ALREADY RUN (trust these; do not repeat them)", ""]
 
-    if analyzed.grounding_issues:
+    fabricated = analyzed.fabricated_figures
+    if fabricated:
         lines.append(
-            f"  {len(analyzed.grounding_issues)} figure(s) in the note do NOT appear "
+            f"  {len(fabricated)} figure(s) in the note do NOT appear "
             f"anywhere in the source data:"
         )
-        for issue in analyzed.grounding_issues:
+        for issue in fabricated:
             lines.append(f'    - {issue.value:g}, in: "{issue.context}"')
         lines.append(
             "  A figure with no source is a fabrication. Weigh it accordingly."
@@ -194,6 +195,20 @@ def _automated_findings(analyzed: AnalyzedCandidate) -> list[str]:
             "  Every figure in the note traces back to the source data. Note what "
             "this does\n  not prove: a real figure can still support a false claim. "
             "That is your job."
+        )
+
+    if analyzed.hypothetical_figures:
+        # Reported, but explicitly not as fabrications. Telling the reflector that
+        # "Brent below $70/bbl" is an invented figure would have it demote a note
+        # for answering the question it was asked.
+        cited = ", ".join(f"{i.value:g}" for i in analyzed.hypothetical_figures)
+        lines.append("")
+        lines.append(
+            f"  The note proposes {len(analyzed.hypothetical_figures)} threshold(s) "
+            f"({cited}) when naming\n  what would change its mind. These are "
+            f"hypothetical future levels, not claims about\n  the present, so they "
+            f"are not expected in the source data. Judge whether they are\n  "
+            f"sensible tests, not whether they are traceable."
         )
 
     if analyzed.headline_sourced:
@@ -293,10 +308,15 @@ def apply_asymmetry(
     outcome = reflection.outcome
     overrides: list[str] = []
 
-    if analyzed.grounding_issues and outcome == "KEEP":
+    # Only figures asserting something about the present count here. A number in
+    # `what_would_change_my_mind` is a proposed threshold, not a claim — see
+    # `AnalyzedCandidate.fabricated_figures`.
+    fabricated = analyzed.fabricated_figures
+
+    if fabricated and outcome == "KEEP":
         outcome = "DEMOTE"
         overrides.append(
-            f"reflector returned KEEP despite {len(analyzed.grounding_issues)} "
+            f"reflector returned KEEP despite {len(fabricated)} "
             f"ungrounded figure(s); forced to DEMOTE"
         )
 
@@ -325,9 +345,9 @@ def apply_asymmetry(
     # Applied last, so it overrides the relative floors rather than competing
     # with them. A fabricated figure is the one defect measured without the
     # model's help, and it is not negotiable.
-    if analyzed.grounding_issues and confidence > UNGROUNDED_CONFIDENCE_CEILING:
+    if fabricated and confidence > UNGROUNDED_CONFIDENCE_CEILING:
         overrides.append(
-            f"{len(analyzed.grounding_issues)} ungrounded figure(s); confidence "
+            f"{len(fabricated)} ungrounded figure(s); confidence "
             f"capped at {UNGROUNDED_CONFIDENCE_CEILING} (was {confidence})"
         )
         confidence = UNGROUNDED_CONFIDENCE_CEILING

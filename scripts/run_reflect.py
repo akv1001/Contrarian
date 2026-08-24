@@ -203,10 +203,15 @@ def _print_verdict(analyzed: AnalyzedCandidate) -> None:
     print(f"\n    NOTE: {VERDICT_LABEL.get(v.verdict, v.verdict)}"
           f"   stated confidence {v.confidence}/100")
     print(_wrap(v.temporary_factor))
-    if analyzed.grounding_issues:
-        print(f"    (mechanical check: {len(analyzed.grounding_issues)} ungrounded "
+    if analyzed.fabricated_figures:
+        print(f"    (mechanical check: {len(analyzed.fabricated_figures)} ungrounded "
               f"figure(s) — "
-              + ", ".join(f"{i.value:g}" for i in analyzed.grounding_issues) + ")")
+              + ", ".join(f"{i.value:g}" for i in analyzed.fabricated_figures) + ")")
+    if analyzed.hypothetical_figures:
+        # Not a fabrication — a proposed future threshold. Shown so the
+        # distinction is visible rather than silently applied.
+        print(f"    (proposed threshold(s), no penalty: "
+              + ", ".join(f"{i.value:g}" for i in analyzed.hypothetical_figures) + ")")
 
 
 def _print_reflection(r: ReflectedCandidate) -> None:
