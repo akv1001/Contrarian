@@ -14,8 +14,8 @@ Full plan: `~/.claude/plans/ok-lets-use-direct-wise-candle.md`
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Scaffold + inference smoke test | **Done — verified end to end** |
-| 2 | Data layer + Indian-coverage spike | **Done — 51/51 tickers fetch clean** |
-| 3 | Deterministic screen | **Done — 9 survivors of 51** |
+| 2 | Data layer + Indian-coverage spike | **Done — 50/50 tickers fetch clean** |
+| 3 | Deterministic screen | **Done — 9 survivors of 50** |
 | 4 | Analyze (LLM call 1) | **Done — grounded JSON verdicts** |
 | 5 | Reflect (LLM call 2) | **Done — weak-note gate passes** |
 | 6 | Report + end-to-end | **Done — `main.py` runs cold** |
@@ -70,7 +70,7 @@ exists to prevent.
 ## Data coverage — measured, not assumed (Phase 2)
 
 Re-run `.venv/bin/python scripts/coverage_spike.py` before trusting any of this;
-it is a scrape of a site that changes. Numbers below are from 2026-08-23, 51 tickers.
+it is a scrape of a site that changes. Numbers below are from 2026-08-25, 50 tickers.
 
 **Safe to screen on — 100% coverage:** `price`, `market_cap`, `fifty_two_week_high/low`,
 `average_volume`, `price_to_book`, `free_cash_flow`, `operating_cash_flow`,
@@ -81,19 +81,19 @@ it is a scrape of a site that changes. Numbers below are from 2026-08-23, 51 tic
 
 | Field | Missing | Where |
 |---|---|---|
-| `ev_to_ebitda` | 9/51 | all Financials |
-| `debt_to_equity` | 7/51 | all Financials |
-| `operating_cash_flow` | 2/51 | Financials |
-| `trailing_pe` | 1/51 | TMPV — loss-making, so no trailing P/E exists |
+| `ev_to_ebitda` | 8/50 | Financials only |
+| `debt_to_equity` | 6/50 | Financials only |
+| `operating_cash_flow` | 2/50 | Financials |
+| `trailing_pe` | 2/50 | TMPV and INDIGO — loss-making, so no trailing P/E exists |
 
 This is **structural, not a data gap**. EV/EBITDA and debt/equity are not defined
 quantities for a bank. Phase 3 must branch: screen Financials on P/B and ROE, and
 everyone else on the EV and leverage filters. Treating absence as a failing value
-would drop all 9-10 financials from the universe silently — and Financials is the
-single largest sector in the Nifty 50.
+would drop most of the 11 financials from the universe silently — and Financials
+is the single largest sector in the Nifty 50.
 
-39/51 tickers carry a complete `SCREEN_FIELDS` record; the 12 that don't are the
-financials above.
+38/50 tickers carry a complete `SCREEN_FIELDS` record; the 12 that don't are the
+financials above, plus the two with no trailing P/E.
 
 ### News: Google News RSS won decisively
 
@@ -101,8 +101,8 @@ The plan called RSS a fallback. Measured, it is the primary source:
 
 | Feed | Items/ticker | Name-matched |
 |---|---|---|
-| yfinance `.news` | 9.6 | 57% |
-| Google News RSS | 94.3 | 87% |
+| yfinance `.news` | 9.6 | 56% |
+| Google News RSS | 83.2 | 84% |
 
 Yahoo's feed is not just thin, it is *wrong* — a `RELIANCE.NS` query returned a
 Rolls-Royce headline and a story from Odessa, Texas. Since news is the only signal
@@ -154,11 +154,16 @@ kept separately on the `Candidate` so a rank can be explained rather than assert
 .venv/bin/python scripts/run_screen.py --explain ITC       # every filter + the figures
 ```
 
-### Live result, 2026-08-23
+### Live result, 2026-08-25
 
-9 of 51 passed: ITC, HINDUNILVR, COALINDIA, ONGC, INFY, HDFCBANK, NTPC, WIPRO, TCS.
-Rejection counts: `near_52w_low` 31, `meaningful_drawdown` 29, `cheap_vs_peers` 24,
-`return_on_equity` 8, `positive_fcf` 6, `leverage` 2.
+9 of 50 passed: ITC, HINDUNILVR, HDFCBANK, COALINDIA, ONGC, INFY, NTPC, WIPRO, TCS.
+Rejection counts: `near_52w_low` 29, `meaningful_drawdown` 24, `cheap_vs_peers` 23,
+`return_on_equity` 8, `positive_fcf` 6, `leverage` 3, `data_complete` 2.
+
+**The same 9 as the 51-name run**, which is the useful thing about correcting the
+universe: neither departed constituent was a survivor and neither new one passes,
+so the fix changed the denominator and nothing else. Worth knowing that a stale
+list had not been quietly shaping the output.
 
 ### Known weaknesses — hand these to Phase 4, don't paper over them
 
@@ -168,7 +173,7 @@ Rejection counts: `near_52w_low` 31, `meaningful_drawdown` 29, `cheap_vs_peers` 
   producers trade on single-digit multiples *everywhere* — that gap is a sector
   characteristic, not a dislocation. `FALLBACK_DISCOUNT_DAMPING = 0.5` halves the
   score contribution when the basis is a fallback. It still gates; it can no
-  longer dominate the ranking. The real fix is a peer universe wider than 51
+  longer dominate the ranking. The real fix is a peer universe wider than 50
   stocks, which we don't have.
 - **A derated sector makes "cheap vs peers" nearly free.** 3 of 5 IT names passed,
   and TCS passed sitting *exactly* on the IT median (discount 0.00). Sector
@@ -448,7 +453,7 @@ Known limits, in rough order of how much they should worry you:
 2. **Confidence is soft.** The same value-trap case scored 60 then 15 on
    consecutive runs; the same weak note scored DEMOTE/55 then REJECT/0. The
    mechanical clamps are what make the output stable, not the model.
-3. **The peer universe is 51 stocks.** "Cheap vs peers" is weak in small sectors
+3. **The peer universe is 50 stocks.** "Cheap vs peers" is weak in small sectors
    and nearly free in a sector that derated together. See the Phase 3 weaknesses.
 4. **A 14B local model is doing the judging.** Zero-cost is a hard constraint, so
    this is the trade; the grounding architecture exists largely to compensate.
@@ -492,9 +497,19 @@ Zero-cost is a hard project constraint: free tiers and local models only.
 - **NSE tickers need a `.NS` suffix** in yfinance — but not always. Always go through
   `universe.yahoo_symbol()`, which consults `YAHOO_SYMBOL_OVERRIDES`. Tata Motors
   demerged: NSE kept `TATAMOTORS` for the CV entity, Yahoo files it under **`TMCV.NS`**,
-  and `TATAMOTORS.NS` now 404s. `TMPV.NS` is the passenger-vehicle entity. Both are in
-  `universe.py` (so it holds 51 entries, not 50) — confirm which the index actually
-  holds at the next review.
+  and `TATAMOTORS.NS` now 404s. `TMPV.NS` is the passenger-vehicle entity, and **it is
+  the one holding the index seat** — the CV company was excluded a few sessions after
+  its October 2025 listing. Only `TMPV` is in `NIFTY_50`; the `TATAMOTORS` mapping stays
+  in the override table because the analyze script and the coverage spike both accept
+  off-index tickers.
+- **The universe must hold exactly 50 names, and a test asserts it.** It held 51 for
+  a while: the 2025-09-29 rebalance (`INDUSINDBK`/`HEROMOTOCO` out, `INDIGO`/`MAXHEALTH`
+  in) and the Tata Motors demerger both landed between reviews, and the list absorbed
+  the new names without dropping the old ones. **Nothing failed.** Departed constituents
+  fetch fine, screen fine, and reach the report looking exactly like current holdings —
+  the only visible symptom was the report saying "51 tickers" for an index of 50.
+  Re-check membership at every review, not just symbol resolution: a symbol that stops
+  resolving is loud, and a symbol that keeps resolving after leaving the index is silent.
 - **A 404 is the friendly failure. The nasty one is a stub.** `TATAMOTOR.NS` (one letter
   off) returns 25 keys of exchange metadata with no price, which passes any key-count
   sanity check and then reads downstream as "this company has no debt and no earnings."
@@ -511,7 +526,7 @@ Zero-cost is a hard project constraint: free tiers and local models only.
 - **`None` never means zero.** The screen excludes on absent data rather than treating
   it as a failing value — otherwise patchy coverage makes a ticker look like a bargain.
 - **Yahoo's `debtToEquity` is a percentage, not a ratio.** `36.65` means 0.37x. Index
-  median is 29.4, max 315. A ceiling written as `2.0` would silently reject all 51 names
+  median is 29.4, max 315. A ceiling written as `2.0` would silently reject all 50 names
   and the screen would look merely strict. `Candidate.figures()` exposes it as
   `debt_to_equity_pct` so the unit cannot be misread downstream.
 - Cache market data to disk with a TTL — `contrarian/data/cache.py`, one JSON file per

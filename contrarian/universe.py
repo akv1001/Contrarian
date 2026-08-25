@@ -19,8 +19,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# Last reviewed: 2026-08-23.
-NIFTY_50_AS_OF = "2026-08-23"
+# Last reviewed: 2026-08-25, against the index constituent list.
+NIFTY_50_AS_OF = "2026-08-25"
 
 
 @dataclass(frozen=True)
@@ -52,7 +52,12 @@ class Constituent:
 YAHOO_SYMBOL_OVERRIDES: dict[str, str] = {
     # Tata Motors demerged into a commercial-vehicle and a passenger-vehicle
     # entity. NSE kept `TATAMOTORS` for the CV business; Yahoo files it under
-    # `TMCV.NS` instead. `TATAMOTORS.NS` now 404s outright.
+    # `TMCV.NS` instead, and `TATAMOTORS.NS` now 404s outright.
+    #
+    # The CV entity is no longer an index constituent, so it is not in
+    # `NIFTY_50` — but the mapping stays. `scripts/run_analyze.py --symbol` and
+    # the coverage spike both accept off-index tickers, and a bare
+    # `TATAMOTORS.NS` there would 404 in a way that reads like a delisting.
     "TATAMOTORS": "TMCV.NS",
 }
 
@@ -75,7 +80,18 @@ def yahoo_symbol(nse_symbol: str) -> str:
 # Yahoo's `industry` field: with only 50 names, finer buckets leave too few peers
 # for a median to mean anything.
 #
-# 51 entries, not 50 — see the Tata Motors note below.
+# **Exactly 50 entries, and `test_data_layer.py` asserts it.** This list carried 51
+# for a while — a demerger and a rebalance both landed between reviews and the
+# list absorbed one without dropping anything:
+#
+#   - 2025-09-29 rebalance: `INDUSINDBK` and `HEROMOTOCO` out, `INDIGO` and
+#     `MAXHEALTH` in, on six-month average free-float market cap.
+#   - 2025-10-01 Tata Motors demerger: the passenger-vehicle entity `TMPV` kept
+#     the index seat; the CV entity was excluded a few sessions after listing.
+#
+# The count is the only cheap check on this list, which is why it is a test. A
+# stale constituent does not fail loudly — it screens, gets analysed, and reaches
+# the report looking exactly like a real result.
 NIFTY_50: tuple[Constituent, ...] = (
     Constituent("ADANIENT", "Adani Enterprises", "Conglomerate"),
     Constituent("ADANIPORTS", "Adani Ports and Special Economic Zone", "Infrastructure"),
@@ -96,11 +112,13 @@ NIFTY_50: tuple[Constituent, ...] = (
     Constituent("HCLTECH", "HCL Technologies", "IT"),
     Constituent("HDFCBANK", "HDFC Bank", "Financials"),
     Constituent("HDFCLIFE", "HDFC Life Insurance", "Financials"),
-    Constituent("HEROMOTOCO", "Hero MotoCorp", "Auto"),
     Constituent("HINDALCO", "Hindalco Industries", "Materials"),
     Constituent("HINDUNILVR", "Hindustan Unilever", "Consumer"),
     Constituent("ICICIBANK", "ICICI Bank", "Financials"),
-    Constituent("INDUSINDBK", "IndusInd Bank", "Financials"),
+    # Airline. Filed under Industrials rather than a bucket of its own because a
+    # one-member sector falls back to the index-wide median, which the Phase 3
+    # notes record as the weakest comparison the screen makes.
+    Constituent("INDIGO", "InterGlobe Aviation", "Industrials"),
     Constituent("INFY", "Infosys", "IT"),
     Constituent("ITC", "ITC", "Consumer"),
     Constituent("JIOFIN", "Jio Financial Services", "Financials"),
@@ -109,6 +127,7 @@ NIFTY_50: tuple[Constituent, ...] = (
     Constituent("LT", "Larsen and Toubro", "Industrials"),
     Constituent("M&M", "Mahindra and Mahindra", "Auto"),
     Constituent("MARUTI", "Maruti Suzuki India", "Auto"),
+    Constituent("MAXHEALTH", "Max Healthcare Institute", "Healthcare"),
     Constituent("NESTLEIND", "Nestle India", "Consumer"),
     Constituent("NTPC", "NTPC", "Utilities"),
     Constituent("ONGC", "Oil and Natural Gas Corporation", "Energy"),
@@ -119,11 +138,10 @@ NIFTY_50: tuple[Constituent, ...] = (
     Constituent("SHRIRAMFIN", "Shriram Finance", "Financials"),
     Constituent("SUNPHARMA", "Sun Pharmaceutical Industries", "Healthcare"),
     Constituent("TATACONSUM", "Tata Consumer Products", "Consumer"),
-    # Post-demerger both Tata Motors entities are listed here. Which of them the
-    # index actually holds is the thing to check on the next review — carrying
-    # both is the honest default, since dropping one on a guess silently removes
-    # a large-cap auto name from the universe.
-    Constituent("TATAMOTORS", "Tata Motors", "Auto", yahoo="TMCV.NS"),
+    # The index seat belongs to the passenger-vehicle entity. The renamed parent
+    # kept it; the demerged CV company (`TATAMOTORS` on NSE, `TMCV.NS` on Yahoo)
+    # was excluded from the indices a few sessions after its October 2025
+    # listing. It is not in this list — see the note above `NIFTY_50`.
     Constituent("TMPV", "Tata Motors Passenger Vehicles", "Auto"),
     Constituent("TATASTEEL", "Tata Steel", "Materials"),
     Constituent("TCS", "Tata Consultancy Services", "IT"),

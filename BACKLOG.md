@@ -259,7 +259,7 @@ numbers, more conviction behind a false story.
 
 - **1,000 free credits/month**, no credit card. Basic search 1 credit, advanced 2.
 - Fine for normal runs (~9 news fetches each). **Not fine for item 1's backtest** —
-  51 tickers x 8 dates = 408 queries per sweep. Another reason RSS stays.
+  50 tickers x 8 dates = 400 queries per sweep. Another reason RSS stays.
 - **`country` targeting only works when `topic` is `general`, not `news`.** So you
   cannot have news-optimised ranking *and* India targeting at once. Given that the
   India edition pinning is what keeps US "Reliance" (Reliance Steel, NYSE: RS) out of

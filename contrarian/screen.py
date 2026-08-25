@@ -2,7 +2,7 @@
 
 Answers one narrow question per ticker: *is this cheap, beaten down, and still
 apparently a sound business?* Whether the cheapness is temporary or deserved is
-Phase 4's job. This stage exists to get the universe from 51 names to a handful
+Phase 4's job. This stage exists to get the universe from 50 names to a handful
 worth spending tokens on, and to hand every figure it used to the stages that
 follow.
 
@@ -23,7 +23,7 @@ Two findings from the Phase 2 spike are load-bearing here:
   sector in the index on missing data.
 - **Yahoo reports `debtToEquity` as a percentage**, not a ratio: 36.65 means
   0.37x. Index median is 29.4 and the max is 315. A ceiling written as `2.0`
-  would silently reject all 51 names, and the screen would look merely strict.
+  would silently reject all 50 names, and the screen would look merely strict.
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ QUALITY_ROE_CEILING = 0.30
 # evidence of a dislocation. Comparing a miner's P/E to a paint company's is not
 # a valuation argument.
 #
-# The honest fix would be a wider peer universe than 51 stocks. Absent that, a
+# The honest fix would be a wider peer universe than 50 stocks. Absent that, a
 # cross-sector comparison is kept as weak evidence — it still gates, but it
 # cannot dominate the ranking.
 FALLBACK_DISCOUNT_DAMPING = 0.5

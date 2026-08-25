@@ -75,6 +75,36 @@ class TestSymbolMapping(unittest.TestCase):
         symbols = [c.symbol for c in NIFTY_50]
         self.assertEqual(len(symbols), len(set(symbols)))
 
+    def test_the_nifty_50_holds_exactly_fifty_names(self):
+        """The only cheap check there is on a hand-maintained list.
+
+        It held 51 for a while. A demerger and a rebalance both landed between
+        reviews, and the list absorbed the new names without dropping the old
+        ones — so the report said "51 tickers screened" for an index of 50, and
+        two departed constituents were being analysed as current.
+
+        That is the shape of the failure: a stale constituent does not throw. It
+        fetches, screens, gets a verdict, and reaches the report looking exactly
+        like a real result. Counting is the one assertion that would have caught
+        it, so it is a test rather than a comment.
+        """
+        self.assertEqual(len(NIFTY_50), 50)
+
+    def test_departed_constituents_are_gone(self):
+        """Named individually, because the count alone cannot tell a correct
+        swap from two compensating errors."""
+        symbols = {c.symbol for c in NIFTY_50}
+        for departed in ("INDUSINDBK", "HEROMOTOCO", "TATAMOTORS"):
+            self.assertNotIn(departed, symbols)
+        for current in ("INDIGO", "MAXHEALTH", "TMPV"):
+            self.assertIn(current, symbols)
+
+    def test_the_off_index_tata_motors_mapping_survives_its_removal(self):
+        """`TATAMOTORS` left the index but the Yahoo override stays: the analyze
+        script and the coverage spike both accept off-index tickers, and a bare
+        `TATAMOTORS.NS` 404s in a way that reads like a delisting."""
+        self.assertEqual(yahoo_symbol("TATAMOTORS"), "TMCV.NS")
+
 
 class TestFundamentals(unittest.TestCase):
     def _sample(self, **overrides) -> Fundamentals:

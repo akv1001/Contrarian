@@ -24,7 +24,7 @@ is the part that can be confidently wrong.
 
 | # | Stage | What happens | LLM? |
 |---|---|---|---|
-| 1 | Screen | 51 tickers against quantitative gates, sector-aware | No |
+| 1 | Screen | 50 tickers against quantitative gates, sector-aware | No |
 | 2 | Enrich | Fundamentals + news; **all arithmetic resolved here** | No |
 | 3 | Analyze | Temporary dip, or value trap? | **Yes** |
 | 4 | Reflect | A fresh reader audits the verdict | **Yes** |
@@ -32,9 +32,9 @@ is the part that can be confidently wrong.
 
 ## The stages in detail
 
-### 1. Screen — narrow 51 stocks to a handful
+### 1. Screen — narrow 50 stocks to a handful
 
-Downloads price history and financial statements for all 51 Nifty 50 companies,
+Downloads price history and financial statements for all 50 Nifty 50 companies,
 then applies nine fixed rules. No AI involved — just comparisons against hard-coded
 thresholds.
 
@@ -48,7 +48,7 @@ thing for a lender, where borrowing is the raw material rather than a warning si
 
 Everything is fetched before anything is filtered, because you can't know the IT
 sector's median P/E until every IT stock has landed. Typical result: **9 survivors of
-51.** Rejections are kept, not discarded — they're how you tell whether a threshold
+50.** Rejections are kept, not discarded — they're how you tell whether a threshold
 is doing real work.
 
 ### 2. Enrich — assemble what the model is allowed to know
@@ -225,7 +225,7 @@ real temporary dips versus known value traps — which is the only test of wheth
 picks are any good. Everything currently tested establishes that the machinery behaves.
 
 Current known limits: verdicts cluster at UNCLEAR 45-55 rather than committing;
-confidence scores vary run to run; the peer comparison is weak because 51 stocks is a
+confidence scores vary run to run; the peer comparison is weak because 50 stocks is a
 thin universe; and it reads headlines, never article bodies.
 
 ## Layout

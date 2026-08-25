@@ -61,7 +61,7 @@ def make_run(reflected=None, *, rejected=(), errors=(), skipped=()) -> PipelineR
         as_of=NOW,
         screen=ScreenResult(
             as_of=NOW,
-            universe_size=51,
+            universe_size=50,
             passed=(make_candidate(),),
             rejected=tuple(rejected),
             errors=tuple(errors),
