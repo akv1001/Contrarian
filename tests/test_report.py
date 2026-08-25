@@ -149,9 +149,11 @@ class TestReportContent(unittest.TestCase):
         self.assertIn("Profit falls on tax hike", markdown)
         self.assertIn("3d ago", markdown)
 
-    def test_headline_links_are_reference_style(self):
-        """Google News hands back ~700-char base64 redirect URLs. Inline, a dozen
-        of those bury the headlines and make the raw file unreadable."""
+    def test_headline_urls_are_not_rendered_at_all(self):
+        """Google News hands back ~700-char base64 redirect URLs. A dozen of those
+        — inline or as reference definitions — swamp the headlines they belong to,
+        and this report is read in an editor as often as rendered. The headline
+        text is what the analyst saw, so the text is what has to be here."""
         item = make_news("Profit falls on tax hike", 3)
         item = type(item)(
             title=item.title,
@@ -162,12 +164,9 @@ class TestReportContent(unittest.TestCase):
         analyzed = make_analyzed(enriched=make_enriched(headlines=[item]))
         markdown = report.render(make_run((make_reflected(analyzed=analyzed),)))
 
-        headline_line = next(
-            line for line in markdown.splitlines() if "Profit falls on tax hike" in line
-        )
-        self.assertNotIn("https://", headline_line)
-        self.assertIn("[test-1]", headline_line)
-        self.assertIn("[test-1]: https://news.google.com/", markdown)
+        self.assertIn("Profit falls on tax hike", markdown)
+        self.assertNotIn("https://news.google.com/", markdown)
+        self.assertNotIn("AAAA", markdown)
 
     def test_absent_headlines_are_stated_not_omitted(self):
         markdown = report.render(make_run())
@@ -187,10 +186,56 @@ class TestReportContent(unittest.TestCase):
         self.assertIn("grounding checks and this report do not", markdown)
         self.assertIn("behaves the same way every time", markdown)
 
+    def test_the_report_says_what_it_is_for(self):
+        """A daily reader knows. Someone handed one copy does not."""
+        markdown = report.render(make_run())
+        self.assertIn("contrarian value candidates", markdown)
+
+
+class TestItStaysLean(unittest.TestCase):
+    """This is read daily, and the same explanations reread daily go unread.
+
+    A term the report uses is defined once, above the results. How the pipeline
+    works is not in the body at all — it is in the README, and in an appendix
+    below the results for anyone who wants it in place.
+    """
+
+    def test_method_explanation_sits_below_the_results(self):
+        markdown = report.render(make_run())
+        self.assertLess(markdown.index("## Results"),
+                        markdown.index("how this is produced"))
+
+    def test_the_internals_of_the_two_pass_design_are_not_explained_up_top(self):
+        """Glossing the `55 → 40` notation is necessary; narrating why there are
+        two passes is workings, and workings belong in the README."""
+        head = report.render(make_run()).split("## Results")[0]
+        self.assertNotIn("Why two numbers", head)
+        self.assertNotIn("Every company is looked at twice", head)
+
+    def test_the_preamble_is_short(self):
+        """Guards against the glossary regrowing. Everything above the results
+        table is overhead a daily reader pays every single day.
+
+        ~290 words as written, and the bound allows for the run-stats line
+        growing when there are fetch failures and skips to declare. It is not a
+        tight budget — it is a tripwire for someone adding a paragraph.
+        """
+        head = report.render(make_run()).split("## Results")[0]
+        self.assertLess(len(head.split()), 340, head)
+
+    def test_per_candidate_boilerplate_is_not_repeated(self):
+        """Explanation printed once per company is the same paragraph nine times
+        in a real run. The verdict's meaning is glossed at the top instead."""
+        markdown = report.render(make_run((make_reflected(), make_reflected())))
+        for once_only in ("Not enough evidence either way",
+                          "only lower the score, never raise it"):
+            self.assertEqual(markdown.count(once_only), 1, once_only)
+
 
 class TestJargonIsExplainedBeforeItIsUsed(unittest.TestCase):
     """A reader who has never seen this project must be able to follow the
-    report. "UNCLEAR at 40/100, down from 55" is meaningless otherwise."""
+    report without opening the README. "UNCLEAR at 40/100, down from 55" is
+    meaningless otherwise — so every term the report uses is glossed, once."""
 
     def test_all_three_verdicts_are_defined(self):
         markdown = report.render(make_run())
@@ -203,15 +248,16 @@ class TestJargonIsExplainedBeforeItIsUsed(unittest.TestCase):
         self.assertIn("80-100", markdown)
         self.assertIn("0-39", markdown)
 
-    def test_the_two_numbers_are_explained(self):
-        """The single most confusing thing in the old format."""
+    def test_the_two_numbers_are_glossed(self):
+        """The notation appears in the results table, so it has to be readable —
+        but a gloss is all it needs, not an account of the design."""
         markdown = report.render(make_run())
-        self.assertIn("Why two numbers", markdown)
+        self.assertIn("`55 → 40`", markdown)
         self.assertIn("only lower the score, never raise it", markdown)
 
     def test_definitions_come_before_the_results(self):
         markdown = report.render(make_run())
-        self.assertLess(markdown.index("What the words below mean"),
+        self.assertLess(markdown.index("## How to read this"),
                         markdown.index("## Results"))
 
     def test_keep_demote_reject_are_defined(self):
@@ -239,7 +285,7 @@ class TestJargonIsExplainedBeforeItIsUsed(unittest.TestCase):
     def test_the_reader_is_told_this_is_not_a_signal(self):
         markdown = report.render(make_run())
         self.assertIn("is a buy or sell signal", markdown)
-        self.assertIn("It is not a recommendation.", markdown)
+        self.assertIn("not investment advice", markdown)
 
     def test_confidence_bands_cover_the_whole_range(self):
         for score, expected in ((95, "high"), (70, "moderate"), (45, "low"),
@@ -269,7 +315,7 @@ class TestTheHonestPartsSurvive(unittest.TestCase):
         )
         markdown = report.render(make_run((make_reflected(analyzed=analyzed),)))
         self.assertIn("70", markdown)
-        self.assertIn("hypothetical future levels", markdown)
+        self.assertIn("Hypothetical future levels", markdown)
         self.assertNotIn("appear nowhere in the source data", markdown)
         # And it must not raise a warning flag in the summary table.
         self.assertNotIn("⚠", markdown)
@@ -279,7 +325,7 @@ class TestTheHonestPartsSurvive(unittest.TestCase):
             make_run((make_reflected(overrides=("DEMOTE left confidence at 55",)),))
         )
         self.assertIn("DEMOTE left confidence at 55", markdown)
-        self.assertIn("overruled", markdown)
+        self.assertIn("Overruled", markdown)
 
     def test_a_withdrawn_verdict_is_not_presented_as_the_analysts(self):
         analyzed = make_analyzed(verdict=make_verdict(verdict="TEMPORARY_DISLOCATION"))

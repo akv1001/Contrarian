@@ -352,6 +352,29 @@ stated number, so an idea the audit knocked down cannot lead the report on the
 strength of a confidence that was withdrawn. The report says in as many words
 that this is not a ranking of investment merit.
 
+### It is read daily, so it explains as little as it can get away with
+
+The first version explained the pipeline in the body — a glossary that narrated
+why there are two passes, a "How to read this" section at the bottom, and a
+paragraph of framing per candidate. Read once that is thorough; read daily it is
+the same 500 words every morning, and a reader who starts skimming the preamble
+does not stop at the figures.
+
+The rule now: **define a term the report uses, once, above the results.** A
+reader must be able to follow the report without opening the README — that much
+is load-bearing, and `TestJargonIsExplainedBeforeItIsUsed` still asserts it.
+Everything about *how* the pipeline works belongs in `README.md`, or failing that
+in `_method_appendix()` below the results, where a returning reader skips it.
+`TestItStaysLean` guards the split: the preamble has a word budget, the method
+appendix must sit below `## Results`, and per-candidate boilerplate must not
+repeat.
+
+**Headline URLs are not rendered at all.** Reference-style definitions were the
+earlier compromise, and at a dozen ~700-character base64 Google redirects per
+candidate they still doubled the section and made the raw file unreadable. What
+the analyst was *shown* is headline text, so that is what needs to be auditable
+here; a reader who wants the article can search the title.
+
 `main.py` records three distinct kinds of not-making-it, and the appendix keeps
 them apart: **rejected** by the screen, **skipped** (screened through, but an LLM
 stage failed), and **fetch errors** (never evaluated at all). Collapsing those
@@ -542,7 +565,7 @@ scripts/
   run_analyze.py     # phase 4 — screen -> enrich -> judge, with grounding report
   run_reflect.py     # phase 5 — the above plus the audit; --weak is the gate
 tests/  test_data_layer.py  test_screen.py  test_analyze.py  test_reflect.py
-        test_report.py                                   # 168 tests, no network
+        test_report.py                                   # 183 tests, no network
 main.py          # phase 6 — wires all five stages, writes the report
 reports/         # generated, gitignored
 ```
@@ -554,5 +577,5 @@ constructing `YahooSource` at a call site.
 ```bash
 .venv/bin/python scripts/coverage_spike.py            # full matrix, warm cache = seconds
 .venv/bin/python scripts/coverage_spike.py --limit 5 --verbose
-.venv/bin/python -m unittest discover tests           # 168 tests, no network
+.venv/bin/python -m unittest discover tests           # 183 tests, no network
 ```

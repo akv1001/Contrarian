@@ -16,6 +16,14 @@ trips over it.
 
 Ordering is by post-audit confidence within verdict class, and the report says
 plainly that this is not a ranking of investment merit. It is idea generation.
+
+**This is read daily, so it explains as little as it can get away with.** The
+rule: define a term the report actually uses, once, above the results — a reader
+must be able to follow it without opening the README. Everything else about how
+the pipeline works belongs in the README, or failing that in the final appendix
+where a returning reader can skip it. Boilerplate repeated once per candidate is
+the thing to watch for: nine copies of the same sentence is nine chances for a
+reader to start skimming, and the figures are what they must not skim.
 """
 
 from __future__ import annotations
@@ -47,30 +55,29 @@ OUTCOME_NOTE = {
 
 # Plain-English gloss for every piece of jargon the report uses. A reader who has
 # never seen this project should not have to infer what UNCLEAR means, or guess
-# whether 40/100 is good. Each entry is (headline, what it actually means).
+# whether 40/100 is good. Each entry is (headline, what it actually means), and
+# it is printed once — in the glossary above the results, never per candidate.
 VERDICT_MEANING = {
     "TEMPORARY_DISLOCATION": (
         "The fall looks temporary",
-        "Something specific and passing appears to have knocked the price down, and "
-        "the business underneath still looks sound.",
+        "something specific and passing knocked the price down, and the business "
+        "underneath still looks sound",
     ),
     "VALUE_TRAP": (
         "Cheap for a real reason",
-        "The low price appears to reflect a genuine, lasting problem with the "
-        "business — not an overreaction. Cheap, and deservedly so.",
+        "the low price reflects a genuine, lasting problem — cheap, and deservedly so",
     ),
     "UNCLEAR": (
         "Not enough evidence either way",
-        "The case for a temporary dip and the case for a real problem came out "
-        "roughly even. That is a legitimate answer rather than a failure — but it is "
-        "not a reason to act.",
+        "the two cases came out roughly even; a legitimate answer, but not a reason "
+        "to act",
     ),
 }
 
 OUTCOME_MEANING = {
-    "KEEP": "The reasoning held up. Nothing material was wrong with it.",
-    "DEMOTE": "The reasoning had real weaknesses, so the confidence was cut.",
-    "REJECT": "The reasoning did not hold up well enough to put this forward at all.",
+    "KEEP": "the reasoning held up",
+    "DEMOTE": "real weaknesses, so the confidence was cut",
+    "REJECT": "the reasoning did not hold up at all",
 }
 
 # Confidence bands, worded to match the scale the analyst was actually given.
@@ -93,6 +100,11 @@ def confidence_band(confidence: int) -> tuple[str, str]:
             return word, meaning
     return "very low", "this is close to a guess"
 
+PURPOSE = (
+    "Nifty 50 companies whose price looks depressed by a *temporary* factor rather "
+    "than a broken business — contrarian value candidates, surfaced for research."
+)
+
 DISCLAIMER = (
     "**This is idea generation, not investment advice.** Every verdict below was "
     "written by a language model, and LLM equity analysis is unreliable — the "
@@ -109,12 +121,12 @@ def render(run: PipelineRun) -> str:
     """
     parts = [
         _header(run),
-        _glossary(),
+        _how_to_read(),
         _summary_table(run),
     ]
     parts.extend(_candidate_section(r, i) for i, r in enumerate(rank(run.reflected), 1))
     parts.append(_screen_appendix(run))
-    parts.append(_how_to_read())
+    parts.append(_method_appendix())
     return "\n\n".join(part for part in parts if part)
 
 
@@ -132,91 +144,74 @@ def rank(reflected: tuple[ReflectedCandidate, ...]) -> list[ReflectedCandidate]:
 
 
 def _header(run: PipelineRun) -> str:
+    """Title, what this is, and the run's provenance on one line.
+
+    The run stats used to be six bullets. They are worth keeping — a reader
+    should know how much of the universe was actually examined and by what — but
+    they are context, not content, so they get a single line.
+    """
     when = run.as_of.strftime("%d %B %Y")
     screen = run.screen
+    stats = [
+        f"{screen.universe_size} tickers screened ({screen.evaluated} fetched cleanly)",
+        f"{len(screen.passed)} passed the quantitative gates",
+        f"{len(run.reflected)} of {run.attempted} judged and audited",
+        f"{run.model} via {run.provider}",
+        f"{run.llm_calls} LLM calls, {run.total_tokens:,} tokens",
+    ]
+    if run.duration_seconds:
+        stats.append(f"{run.duration_seconds / 60:.0f} min")
+
     lines = [
         f"# Contrarian screen — {when}",
         "",
+        PURPOSE,
+        "",
         DISCLAIMER,
         "",
-        "## This run",
-        "",
-        f"- **Universe:** {screen.universe_size} Nifty 50 tickers "
-        f"({screen.evaluated} fetched cleanly)",
-        f"- **Screen:** {len(screen.passed)} passed the quantitative gates, "
-        f"{len(screen.rejected)} rejected",
-        f"- **Judged and audited:** {len(run.reflected)} of {run.attempted} attempted",
-        f"- **Model:** {run.model} via {run.provider}",
-        f"- **LLM calls:** {run.llm_calls} — two per candidate, "
-        f"{run.total_tokens:,} tokens",
+        " · ".join(stats),
     ]
-    if run.duration_seconds:
-        lines.append(f"- **Took:** {run.duration_seconds / 60:.0f} min")
+    # Neither of these is a rejection, and the distinction is the honest part.
+    misses = []
     if screen.errors:
-        lines.append(
-            f"- **Fetch failures:** {len(screen.errors)} ticker(s) could not be "
-            f"screened — see the appendix. Not the same as being rejected."
-        )
+        misses.append(f"{len(screen.errors)} ticker(s) could not be fetched at all")
     if run.skipped:
-        lines.append(
-            f"- **Skipped:** {len(run.skipped)} candidate(s) screened through but "
-            f"their analysis failed — see the appendix."
+        misses.append(
+            f"{len(run.skipped)} screened through but could not be judged"
         )
+    if misses:
+        lines.append("")
+        lines.append(f"*{'; '.join(misses)} — see the appendix. Neither is a rejection.*")
     return "\n".join(lines)
 
 
-def _glossary() -> str:
-    """Define every term before it is used.
+def _how_to_read() -> str:
+    """Define every term the report uses, once, above the results.
 
-    Sits above the results on purpose. The report is meant to be readable by
-    someone who has never seen this project, and "UNCLEAR at 40/100, down from 55"
-    is meaningless without all three of these explained first.
+    Deliberately terse. This is read daily; a returning reader should be able to
+    take it in at a glance or skip it entirely. It glosses the vocabulary and
+    nothing else — how the verdicts are produced is in the final appendix.
     """
-    lines = [
-        "## What the words below mean",
-        "",
-        "Each company gets **one of three verdicts**:",
-        "",
-    ]
+    lines = ["## How to read this", ""]
     for key in ("TEMPORARY_DISLOCATION", "UNCLEAR", "VALUE_TRAP"):
         headline, meaning = VERDICT_MEANING[key]
-        lines.append(f"- **{VERDICT_LABEL[key]}** — *{headline}.* {meaning}")
+        lines.append(f"- **{VERDICT_LABEL[key]}** — *{headline}*: {meaning}.")
 
+    outcomes = " · ".join(f"**{key}** ({OUTCOME_MEANING[key]})" for key in
+                          ("KEEP", "DEMOTE", "REJECT"))
     lines.extend(
         [
             "",
-            "**Confidence** is a 0-100 score for how strong the evidence was:",
+            "**Confidence** runs 0-100: **80-100** high · **60-79** moderate · "
+            "**40-59** low, evidence genuinely balanced · **0-39** close to a guess.",
             "",
-            "| Score | Means |",
-            "|---|---|",
-            "| 80-100 | High — the evidence points clearly one way |",
-            "| 60-79 | Moderate — it leans one way, but there is real evidence against |",
-            "| 40-59 | Low — the evidence is genuinely balanced |",
-            "| 0-39 | Very low — close to a guess |",
+            f"`55 → 40` means a first pass scored 55 and an independent review cut it "
+            f"to 40. The review can **only lower the score, never raise it**, and "
+            f"ends in {outcomes}.",
             "",
-            "**Why two numbers, like \"55 → 40\"?** Every company is looked at twice. "
-            "A first pass reaches a verdict and scores its own confidence. Then a "
-            "second, independent pass re-reads that verdict against the same figures "
-            "and checks whether the reasoning holds up.",
-            "",
-            "The second pass can **only lower the score, never raise it**. That is "
-            "deliberate: missing an opportunity costs nothing, while recommending a "
-            "company that is cheap for a good reason is expensive. So `55 → 40` means "
-            "the first pass said 55 and the review cut it to 40.",
-            "",
-            "The review ends in one of three outcomes:",
-            "",
-        ]
-    )
-    for key in ("KEEP", "DEMOTE", "REJECT"):
-        lines.append(f"- **{key}** — {OUTCOME_MEANING[key]}")
-
-    lines.extend(
-        [
-            "",
-            "> **None of this is a buy or sell signal.** The most a strong result here "
-            "means is *this one is worth your own research*. Nothing below has been "
-            "checked against whether it actually made money.",
+            "> **Nothing here is a buy or sell signal**, and the order is not a "
+            "ranking of investment merit — it is verdict class, then whatever "
+            "confidence survived the review.",
         ]
     )
     return "\n".join(lines)
@@ -232,8 +227,7 @@ def _summary_table(run: PipelineRun) -> str:
     rows = [
         "## Results",
         "",
-        "Confidence reads `first pass → after review`. A single number means the "
-        "review left it unchanged.",
+        "A single confidence means the review left it unchanged.",
         "",
         "| # | Ticker | Sector | Verdict | Confidence | Review | Figures checked |",
         "|---|---|---|---|---|---|---|",
@@ -260,22 +254,22 @@ def _summary_table(run: PipelineRun) -> str:
 
 
 def _candidate_section(r: ReflectedCandidate, index: int) -> str:
+    """One company: the verdict, then the evidence for it.
+
+    The verdict's meaning, the confidence rubric and what the audit is are all
+    glossed once at the top of the report. Repeating any of it here would be the
+    same three paragraphs nine times over.
+    """
     verdict = r.analyzed.verdict
-    headline, meaning = VERDICT_MEANING.get(
-        r.final_verdict, (r.final_verdict, "")
-    )
-    word, band = confidence_band(r.final_confidence)
+    label = VERDICT_LABEL.get(r.final_verdict, r.final_verdict)
+    word, _band = confidence_band(r.final_confidence)
 
     lines = [
         "---",
         "",
         f"## {index}. {r.symbol} — {r.name}",
         "",
-        f"### Verdict: {headline.lower()}",
-        "",
-        meaning,
-        "",
-        f"**Confidence {r.final_confidence}/100 — {word}**, meaning {band}.",
+        f"**{label}** · **Confidence {r.final_confidence}/100 — {word}**",
     ]
 
     # Spell out the two-pass story rather than leaving "down from 55" to be
@@ -300,15 +294,6 @@ def _candidate_section(r: ReflectedCandidate, index: int) -> str:
                 f"The audit withdrew that call.",
             ]
         )
-
-    lines.extend(
-        [
-            "",
-            f"*Everything below is the evidence for that verdict — why it was picked "
-            f"out of the 51, what the analysis argued, what the review objected to, "
-            f"and every figure it was given. It is not a recommendation.*",
-        ]
-    )
 
     lines.extend(_why_it_screened(r.analyzed.enriched.candidate))
     lines.extend(
@@ -356,14 +341,7 @@ def _why_it_screened(candidate: Candidate) -> list[str]:
 
 def _audit_section(r: ReflectedCandidate) -> list[str]:
     ref = r.reflection
-    lines = [
-        "",
-        f"### The audit — {ref.outcome}",
-        "",
-        "A second reader was shown the same source data and this note, "
-        "unattributed, and asked whether the reasoning holds.",
-        "",
-    ]
+    lines = ["", f"### The audit — {ref.outcome}", ""]
     for label, text in (
         ("Are the figures real?", ref.figures_check),
         ("Do the claims follow from them?", ref.claim_check),
@@ -381,9 +359,8 @@ def _audit_section(r: ReflectedCandidate) -> list[str]:
         lines.extend(
             [
                 "",
-                f"**⚠ {len(r.analyzed.fabricated_figures)} figure(s) in this note "
-                f"appear nowhere in the source data.** A figure with no source is a "
-                f"fabrication, whatever else the note gets right:",
+                f"**⚠ {len(r.analyzed.fabricated_figures)} figure(s) appear nowhere in "
+                f"the source data — a fabrication, whatever else the note gets right:**",
                 "",
             ]
         )
@@ -397,10 +374,9 @@ def _audit_section(r: ReflectedCandidate) -> list[str]:
         lines.extend(
             [
                 "",
-                f"*The note proposes {len(r.analyzed.hypothetical_figures)} threshold(s) "
-                f"— {cited} — in naming what would change its mind. Those are "
-                f"hypothetical future levels rather than claims about the present, so "
-                f"they are not expected to appear in the data and carry no penalty.*",
+                f"*Proposes {len(r.analyzed.hypothetical_figures)} threshold(s) — "
+                f"{cited} — in naming what would change its mind. Hypothetical future "
+                f"levels, not claims about the present, so no penalty applies.*",
             ]
         )
 
@@ -409,22 +385,14 @@ def _audit_section(r: ReflectedCandidate) -> list[str]:
         lines.extend(
             [
                 "",
-                f"*{len(r.analyzed.headline_sourced)} figure(s) — {cited} — were quoted "
-                f"from news headline text rather than verified financial data. Not "
-                f"errors, but a claim resting on one is weaker than it looks.*",
+                f"*{len(r.analyzed.headline_sourced)} figure(s) — {cited} — came from "
+                f"headline text rather than verified financial data. Not errors, but a "
+                f"claim resting on one is weaker than it looks.*",
             ]
         )
 
     if r.overrides:
-        lines.extend(
-            [
-                "",
-                "**The audit was overruled where it was too generous.** Reflection may "
-                "only lower conviction, and that is enforced in code rather than "
-                "requested of the model:",
-                "",
-            ]
-        )
+        lines.extend(["", "**Overruled where the audit was too generous:**", ""])
         lines.extend(f"- {note}" for note in r.overrides)
     return lines
 
@@ -440,9 +408,6 @@ def _figures_section(enriched) -> list[str]:
         "",
         "### The figures it was given",
         "",
-        "Every number the analyst was allowed to use, exactly as supplied. "
-        "Comparisons were computed in Python, not by the model.",
-        "",
         "| | |",
         "|---|---|",
     ]
@@ -451,13 +416,14 @@ def _figures_section(enriched) -> list[str]:
 
 
 def _headlines_section(enriched) -> list[str]:
-    """The news the analyst saw, with links kept out of the way.
+    """The news the analyst saw. Headline text only — no links.
 
-    Reference-style links rather than inline ones, because Google News RSS hands
-    back ~700-character base64 redirect URLs. Inline, a dozen of those bury the
-    headlines they belong to and make the raw file unreadable — and this report
-    is as likely to be read in an editor as rendered. The links still resolve;
-    they just live at the bottom of the section.
+    The URLs are dropped deliberately. Google News RSS hands back ~700-character
+    base64 redirect URLs; even as reference-style definitions they doubled the
+    length of this section and made the raw file unreadable, and this report is
+    read in an editor as often as rendered. What the analyst was *shown* is the
+    headline text, so that is what needs to be auditable here; a reader who wants
+    the article can search the headline.
     """
     lines = ["", "### The headlines it was shown", ""]
     if not enriched.headlines:
@@ -468,27 +434,15 @@ def _headlines_section(enriched) -> list[str]:
         return lines
 
     lines.append(
-        f"{len(enriched.headlines)} most recent, via {enriched.news_source}. "
-        f"Headlines only — full articles were not retrieved."
+        f"{len(enriched.headlines)} most recent, via {enriched.news_source} "
+        f"— headline text only, full articles were not retrieved."
     )
     lines.append("")
 
-    references: list[str] = []
-    for i, item in enumerate(enriched.headlines, 1):
+    for item in enriched.headlines:
         age = f"{item.age_days:.0f}d ago" if item.age_days is not None else "undated"
         publisher = item.publisher or "unknown source"
-        if item.url:
-            # Scoped by symbol so definitions stay unique across the document.
-            ref = f"{enriched.symbol.lower()}-{i}"
-            title = f"[{item.title}][{ref}]"
-            references.append(f"[{ref}]: {item.url}")
-        else:
-            title = item.title
-        lines.append(f"- *{age}, {publisher}* — {title}")
-
-    if references:
-        lines.append("")
-        lines.extend(references)
+        lines.append(f"- *{age}, {publisher}* — {item.title}")
     return lines
 
 
@@ -551,12 +505,18 @@ def _screen_appendix(run: PipelineRun) -> str:
     return "\n".join(lines)
 
 
-def _how_to_read() -> str:
+def _method_appendix() -> str:
+    """How the verdicts are produced — last, because it never changes.
+
+    This is the same every day, so it sits below the results where a returning
+    reader skips it and a first-time reader can still find it. The README covers
+    it at length; what is here is only what bears on trusting the output.
+    """
     return "\n".join(
         [
             "---",
             "",
-            "## How to read this",
+            "## Appendix — how this is produced",
             "",
             "Two of the five stages use a language model — the verdict and the audit. "
             "**The screen, the arithmetic, the grounding checks and this report do "
@@ -567,17 +527,15 @@ def _how_to_read() -> str:
             "— rather than two numbers and a relationship to work out. It was never "
             "asked to calculate anything.",
             "- **Every figure in a verdict was traced back to its input.** Anything "
-            "that did not trace is flagged above as ungrounded.",
+            "that did not trace is flagged as ungrounded in that company's section.",
             "- **A clean grounding report does not mean a correct analysis.** A real "
             "number can still support a false claim. That is what the audit is for, "
             "and the audit is a language model too.",
-            "- **The audit can only lower conviction, never raise it.** A deliberate "
-            "asymmetry: the expensive error is recommending a value trap, not "
-            "missing an opportunity.",
-            "- **The ordering above is not a ranking of investment merit.** It is "
-            "verdict class, then whatever confidence survived the audit.",
-            "",
-            DISCLAIMER,
+            "- **The audit can only lower conviction, never raise it**, enforced in "
+            "code rather than asked of the model: the expensive error is "
+            "recommending a value trap, not missing an opportunity.",
+            "- **Headlines only.** The temporary factor is inferred from headline "
+            "text; full articles are never fetched.",
         ]
     )
 

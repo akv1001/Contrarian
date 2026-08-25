@@ -150,6 +150,17 @@ findings, the full figure sheet, and the headlines. The figures sit **next to** 
 reasoning that uses them, so a doubtful sentence can be checked without leaving the
 page.
 
+**It is written to be read daily, which is a constraint on length.** A term the
+report uses is defined once, above the results, so someone handed a single copy can
+follow it without opening this file — but nothing more. How the pipeline works lives
+here, and in a short appendix at the very bottom of the report where a returning
+reader skips it. Explanation repeated per candidate is the thing to watch for: nine
+copies of the same paragraph is nine chances for a reader to start skimming, and the
+figures are what they must not skim. Headline links are dropped for the same reason —
+Google News hands back ~700-character redirect URLs, and a dozen per candidate swamp
+the headlines they belong to. The headline text is what the model was shown, so the
+text is what has to be auditable.
+
 ## Why it is built this way
 
 The design assumes the model will get numbers wrong, because in financial QA it
@@ -203,7 +214,7 @@ Roughly two minutes per candidate on a local 14B model. Individual stages:
 .venv/bin/python scripts/run_screen.py --show-rejects 10   # tune the screen here
 .venv/bin/python scripts/run_analyze.py --limit 3
 .venv/bin/python scripts/run_reflect.py --weak ITC         # audit a deliberately bad note
-.venv/bin/python -m unittest discover tests                # 168 tests, no network
+.venv/bin/python -m unittest discover tests                # 183 tests, no network
 ```
 
 ## Does it work?
