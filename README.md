@@ -1,17 +1,22 @@
 # ContrarianOppAIAgent
 
-Scans the **Nifty 50** for contrarian value picks: companies whose price is depressed by
-a *temporary* factor — a news cycle, an earnings miss, sector rotation — but whose
-fundamentals suggest the business is sound. It outputs reasoning and the figures behind
-it, not just tickers.
+A study in making a language model's output checkable. It screens the **Nifty 50** for
+a specific pattern — companies whose price is depressed by a *temporary* factor, a news
+cycle or an earnings miss or sector rotation, while the fundamentals still look sound —
+and writes up the reasoning with every figure it rests on shown alongside.
 
-> **This is idea generation, not investment advice.**
+The interesting part is not the stock screening. It is the architecture that keeps the
+model from inventing numbers, and the machinery that checks whether it did anyway.
+
+> **This is a personal programming project, not investment advice.**
 >
-> The verdicts are written by a language model, and LLM equity analysis is unreliable.
-> The *figures* are grounded and machine-checked; the *reasoning* is not. Treat the
-> output as a starting point for your own research and never as a decision. Nothing
-> here has been validated against whether it actually picks winners — see
-> [Does it work?](#does-it-work).
+> It is not an advisory or research service, it publishes no output, and nothing it
+> produces is a recommendation to buy, sell or hold anything. The verdicts are written
+> by a language model, and LLM equity analysis is unreliable — the *figures* are
+> grounded and machine-checked, the *reasoning* is not. Nothing here has been validated
+> against whether it identifies anything profitable; see [Does it work?](#does-it-work).
+>
+> Full terms: [DISCLAIMER.md](DISCLAIMER.md).
 
 ## What it does
 

@@ -8,7 +8,16 @@
 .cache/
 
 # Generated reports (Phase 6) — regenerate with `python main.py`
+#
+# Keep these out of the repo deliberately, not just to save space. A public repo
+# full of dated "here are 9 stocks" files reads like a recommendation service;
+# the tool that generates them does not.
 reports/
+
+# Per-machine Claude Code settings. Ignored by most contributors' global
+# gitignore already — but a global rule does not travel with the repo, so it is
+# repeated here where a fresh clone will actually see it.
+.claude/settings.local.json
 
 # Python
 __pycache__/

@@ -1,13 +1,23 @@
 # ContrarianOppAIAgent
 
-Scans the **Nifty 50** for contrarian value picks: companies whose price is depressed by
-a *temporary* factor (news cycle, earnings miss, sector rotation) but whose fundamentals
-suggest the business is sound. Outputs reasoning, not just tickers.
+Screens the **Nifty 50** for companies whose price is depressed by a *temporary* factor
+(news cycle, earnings miss, sector rotation) but whose fundamentals suggest the business
+is sound. Outputs reasoning, not just tickers.
 
-**This is idea generation, not investment advice.** LLM equity analysis is unreliable.
-Output is a starting point for your own research, never a decision.
+**This is a personal programming project, not investment advice.** LLM equity analysis
+is unreliable. Output is a starting point for your own research, never a decision.
 
-Full plan: `~/.claude/plans/ok-lets-use-direct-wise-candle.md`
+**Public repo — see `DISCLAIMER.md`.** Two things follow from it and must stay true:
+**never commit a generated report** (`reports/` is gitignored, and publishing dated
+lists of stocks would make this a research service rather than a piece of software),
+and **keep the framing "a tool, not recommendations"** in the README and in
+`report.py`'s own disclaimer. The wording there is load-bearing, not decoration.
+
+No `LICENSE` file, deliberately — copyright defaults to the author without one, so
+saying so explicitly would add nothing but a proprietary tone.
+
+The original build plan lives outside this repo and is not published; everything
+load-bearing from it has been folded into this file.
 
 ## Status
 
